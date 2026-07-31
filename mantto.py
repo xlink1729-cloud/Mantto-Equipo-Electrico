@@ -1,6 +1,4 @@
 import streamlit as st
-st.warning("⚠️ PROBANDO CAMBIOS DE SEGURIDAD") # <--- Agrega esto
-import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import create_engine, text
@@ -57,9 +55,24 @@ def inicializar_bd():
     );
     """)
 
+    query_eventos = text("""
+    CREATE TABLE IF NOT EXISTS registro_eventos (
+        id SERIAL PRIMARY KEY,
+        fecha_hora TIMESTAMP,
+        equipo VARCHAR(100),
+        tipo_evento VARCHAR(100),
+        severidad VARCHAR(20),
+        descripcion TEXT,
+        accion_tomada TEXT,
+        estatus VARCHAR(30),
+        reportado_por VARCHAR(100)
+    );
+    """)
+
     with engine.begin() as conn:
         conn.execute(query_inspecciones)
         conn.execute(query_usuarios)
+        conn.execute(query_eventos)
         
         # Crear usuario administrador por defecto si no hay usuarios
         res = conn.execute(text("SELECT COUNT(*) FROM usuarios;")).scalar()
@@ -73,15 +86,12 @@ def inicializar_bd():
 inicializar_bd()
 
 # ---------------------------------------------------------
-# CONTROL DE SESIÓN Y LOGIN (VERSIÓN FORZADA)
+# CONTROL DE SESIÓN BLOQUEANTE (FORZADO)
 # ---------------------------------------------------------
-if "autenticado_v2" not in st.session_state:
-    st.session_state["autenticado_v2"] = False
-if "usuario_actual" not in st.session_state:
+if "sesion_valida" not in st.session_state:
+    st.session_state["sesion_valida"] = False
     st.session_state["usuario_actual"] = None
-if "username_actual" not in st.session_state:
     st.session_state["username_actual"] = None
-if "rol_actual" not in st.session_state:
     st.session_state["rol_actual"] = None
 
 def login(usuario, password):
@@ -90,7 +100,7 @@ def login(usuario, password):
     with engine.connect() as conn:
         result = conn.execute(query, {"u": usuario, "p": pass_hash}).fetchone()
         if result:
-            st.session_state["autenticado_v2"] = True
+            st.session_state["sesion_valida"] = True
             st.session_state["username_actual"] = result.username
             st.session_state["usuario_actual"] = result.nombre
             st.session_state["rol_actual"] = result.rol
@@ -98,35 +108,16 @@ def login(usuario, password):
         return False
 
 def logout():
-    st.session_state["autenticado_v2"] = False
+    st.session_state["sesion_valida"] = False
     st.session_state["usuario_actual"] = None
     st.session_state["username_actual"] = None
     st.session_state["rol_actual"] = None
     st.rerun()
 
-# PANTALLA DE LOGIN
-if not st.session_state["autenticado_v2"]:
-    st.title("🔒 Acceso al Sistema de Mantenimiento")
-    st.caption("Ingresa con tus credenciales para continuar")
-
-    with st.form("form_login"):
-        user_input = st.text_input("Usuario")
-        pass_input = st.text_input("Contraseña", type="password")
-        btn_ingresar = st.form_submit_button("Iniciar Sesión")
-
-        if btn_ingresar:
-            if login(user_input, pass_input):
-                st.success("Acceso concedido.")
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos.")
-
-    st.stop()
-
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN (BLOQUEANTE)
 # ---------------------------------------------------------
-if not st.session_state["autenticado"]:
+if not st.session_state["sesion_valida"]:
     st.title("🔒 Acceso al Sistema de Mantenimiento")
     st.caption("Ingresa con tus credenciales para continuar")
 
@@ -156,7 +147,14 @@ if st.sidebar.button("🔴 Cerrar Sesión"):
 st.sidebar.markdown("---")
 
 # Opciones del menú según el rol
-opciones_menu = ["Dashboard de Operación", "Nueva Inspección", "Historial de Mediciones", "Mi Perfil"]
+opciones_menu = [
+    "Dashboard de Operación", 
+    "Nueva Inspección", 
+    "Registro de Eventos", 
+    "Historial de Mediciones", 
+    "Mi Perfil"
+]
+
 if st.session_state.rol_actual == "admin":
     opciones_menu.append("Gestión de Usuarios")
 
@@ -174,6 +172,10 @@ def calcular_desbalance(v1, v2, v3):
 
 def obtener_datos():
     query = "SELECT * FROM inspecciones_bombas ORDER BY fecha DESC, id DESC;"
+    return pd.read_sql_query(query, engine)
+
+def obtener_eventos():
+    query = "SELECT * FROM registro_eventos ORDER BY fecha_hora DESC, id DESC;"
     return pd.read_sql_query(query, engine)
 
 # ---------------------------------------------------------
@@ -277,7 +279,97 @@ elif opcion == "Nueva Inspección":
             st.success(f"✅ Registro guardado exitosamente. Estado evaluado: **{estado_eval}**.")
 
 # ---------------------------------------------------------
-# 3. HISTORIAL
+# 3. REGISTRO DE EVENTOS (NUEVA PESTAÑA)
+# ---------------------------------------------------------
+elif opcion == "Registro de Eventos":
+    st.title("🚨 Bitácora y Registro de Eventos")
+
+    with st.expander("➕ Registrar Nuevo Evento / Incidente", expanded=True):
+        with st.form("form_evento", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                equipo_ev = st.text_input("Equipo / Motor Afectado", value="Bomba Pozo 01")
+                tipo_ev = st.selectbox(
+                    "Tipo de Evento",
+                    [
+                        "Desconexión por daño mecánico",
+                        "Falla eléctrica / Sobrevoltaje",
+                        "Paro de emergencia",
+                        "Mantenimiento no programado",
+                        "Fuga o Sobrecalentamiento",
+                        "Otro"
+                    ]
+                )
+                severidad_ev = st.select_slider(
+                    "Nivel de Severidad",
+                    options=["Baja", "Media", "Alta", "Crítica"]
+                )
+
+            with col2:
+                descripcion_ev = st.text_area("Descripción / Causa Raíz", placeholder="Detalla qué sucedió exactamente...")
+                accion_ev = st.text_input("Acción Inmediata Tomada", placeholder="Ej. Se aisló térmicamente el motor y notificó...")
+                estatus_ev = st.selectbox("Estatus del Evento", ["Abierto", "En Revisión", "Resuelto"])
+
+            btn_evento = st.form_submit_button("Guardar Evento en BD")
+
+            if btn_evento:
+                q_ins_ev = text("""
+                INSERT INTO registro_eventos (fecha_hora, equipo, tipo_evento, severidad, descripcion, accion_tomada, estatus, reportado_por)
+                VALUES (:fh, :eq, :te, :sev, :desc, :acc, :est, :rep);
+                """)
+                
+                params_ev = {
+                    "fh": datetime.now(),
+                    "eq": equipo_ev,
+                    "te": tipo_ev,
+                    "sev": severidad_ev,
+                    "desc": descripcion_ev,
+                    "acc": accion_ev,
+                    "est": estatus_ev,
+                    "rep": st.session_state.usuario_actual
+                }
+
+                with engine.begin() as conn:
+                    conn.execute(q_ins_ev, params_ev)
+
+                st.success("✅ Evento registrado exitosamente en la base de datos.")
+
+    st.markdown("---")
+
+    # Mostrar Bitácora Completa
+    st.subheader("📋 Bitácora de Eventos Registrados")
+    df_eventos = obtener_eventos()
+
+    if df_eventos.empty:
+        st.info("Aún no hay eventos ni incidentes registrados.")
+    else:
+        # Filtros opcionales
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            filtro_eq = st.multiselect("Filtrar por Equipo:", df_eventos["equipo"].unique())
+        with f_col2:
+            filtro_sev = st.multiselect("Filtrar por Severidad:", df_eventos["severidad"].unique())
+
+        df_evt_filtered = df_eventos.copy()
+        if filtro_eq:
+            df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
+        if filtro_sev:
+            df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
+
+        st.dataframe(df_evt_filtered, use_container_width=True)
+
+        # Descarga rápida
+        csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Exportar Eventos a CSV",
+            data=csv_ev,
+            file_name=f"eventos_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
+# ---------------------------------------------------------
+# 4. HISTORIAL DE MEDICIONES
 # ---------------------------------------------------------
 elif opcion == "Historial de Mediciones":
     st.title("📊 Historial de Mediciones")
@@ -285,7 +377,7 @@ elif opcion == "Historial de Mediciones":
     st.dataframe(df, use_container_width=True)
 
 # ---------------------------------------------------------
-# 4. MI PERFIL (CAMBIO DE CONTRASEÑA)
+# 5. MI PERFIL (CAMBIO DE CONTRASEÑA)
 # ---------------------------------------------------------
 elif opcion == "Mi Perfil":
     st.title("👤 Configuración de Perfil")
@@ -322,7 +414,7 @@ elif opcion == "Mi Perfil":
                         st.error("❌ La contraseña actual es incorrecta.")
 
 # ---------------------------------------------------------
-# 5. GESTIÓN DE USUARIOS (SOLO ADMINISTRADOR)
+# 6. GESTIÓN DE USUARIOS (SOLO ADMINISTRADOR)
 # ---------------------------------------------------------
 elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin":
     st.title("⚙️ Administración de Usuarios")
