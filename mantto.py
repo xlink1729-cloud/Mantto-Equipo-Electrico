@@ -74,10 +74,13 @@ inicializar_bd()
 # CONTROL DE SESIÓN Y LOGIN
 # ---------------------------------------------------------
 if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-    st.session_state.usuario_actual = None
-    st.session_state.username_actual = None
-    st.session_state.rol_actual = None
+    st.session_state["autenticado"] = False
+if "usuario_actual" not in st.session_state:
+    st.session_state["usuario_actual"] = None
+if "username_actual" not in st.session_state:
+    st.session_state["username_actual"] = None
+if "rol_actual" not in st.session_state:
+    st.session_state["rol_actual"] = None
 
 def login(usuario, password):
     pass_hash = hash_password(password)
@@ -85,23 +88,24 @@ def login(usuario, password):
     with engine.connect() as conn:
         result = conn.execute(query, {"u": usuario, "p": pass_hash}).fetchone()
         if result:
-            st.session_state.autenticado = True
-            st.session_state.username_actual = result.username
-            st.session_state.usuario_actual = result.nombre
-            st.session_state.rol_actual = result.rol
+            st.session_state["autenticado"] = True
+            st.session_state["username_actual"] = result.username
+            st.session_state["usuario_actual"] = result.nombre
+            st.session_state["rol_actual"] = result.rol
             return True
         return False
 
 def logout():
-    st.session_state.autenticado = False
-    st.session_state.usuario_actual = None
-    st.session_state.username_actual = None
-    st.session_state.rol_actual = None
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_actual"] = None
+    st.session_state["username_actual"] = None
+    st.session_state["rol_actual"] = None
+    st.rerun()
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN
+# PANTALLA DE LOGIN (BLOQUEANTE)
 # ---------------------------------------------------------
-if not st.session_state.autenticado:
+if not st.session_state["autenticado"]:
     st.title("🔒 Acceso al Sistema de Mantenimiento")
     st.caption("Ingresa con tus credenciales para continuar")
 
@@ -116,8 +120,9 @@ if not st.session_state.autenticado:
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-    
-    st.stop()  # <--- ESTA LÍNEA ES CRUCIAL: Detiene el renderizado del resto de la app
+
+    # Al poner st.stop() fuera del form, evitamos que renderice nada más abajo
+    st.stop()
 
 # ---------------------------------------------------------
 # BARRA LATERAL (NAVEGACIÓN)
@@ -270,19 +275,23 @@ elif opcion == "Mi Perfil":
     st.write(f"**Usuario:** {st.session_state.username_actual}")
     
     st.subheader("Cambiar Contraseña")
-    with st.form("form_cambiar_pass"):
+    with st.form("form_cambiar_pass", clear_on_submit=True):
         pass_actual = st.text_input("Contraseña Actual", type="password")
         pass_nueva = st.text_input("Nueva Contraseña", type="password")
         pass_confirm = st.text_input("Confirmar Nueva Contraseña", type="password")
         btn_pass = st.form_submit_button("Actualizar Contraseña")
 
         if btn_pass:
-            if hash_password(pass_actual) != hash_password(pass_actual): # Verificación básica
-                st.error("Revisa tus datos.")
+            if not pass_actual or not pass_nueva or not pass_confirm:
+                st.warning("Por favor completa todos los campos.")
             elif pass_nueva != pass_confirm:
-                st.error("Las nuevas contraseñas no coinciden.")
+                st.error("La nueva contraseña y su confirmación no coinciden.")
             else:
-                update_q = text("UPDATE usuarios SET password_hash = :p WHERE username = :u AND password_hash = :pa;")
+                update_q = text("""
+                    UPDATE usuarios 
+                    SET password_hash = :p 
+                    WHERE username = :u AND password_hash = :pa;
+                """)
                 with engine.begin() as conn:
                     res = conn.execute(update_q, {
                         "p": hash_password(pass_nueva),
@@ -290,49 +299,6 @@ elif opcion == "Mi Perfil":
                         "pa": hash_password(pass_actual)
                     })
                     if res.rowcount > 0:
-                        st.success("Contraseña actualizada correctamente.")
+                        st.success("✅ Contraseña actualizada correctamente.")
                     else:
-                        st.error("La contraseña actual es incorrecta.")
-
-# ---------------------------------------------------------
-# 5. GESTIÓN DE USUARIOS (SOLO ADMINISTRADOR)
-# ---------------------------------------------------------
-elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin":
-    st.title("⚙️ Administración de Usuarios")
-
-    col_crear, col_lista = st.columns([1, 1])
-
-    with col_crear:
-        st.subheader("➕ Registrar Nuevo Usuario")
-        with st.form("form_nuevo_usuario", clear_on_submit=True):
-            nuevo_user = st.text_input("Nombre de usuario (ej. jsmith)")
-            nuevo_nombre = st.text_input("Nombre Completo (ej. Juan Smith)")
-            nuevo_pass = st.text_input("Contraseña", type="password")
-            nuevo_rol = st.selectbox("Rol de Acceso", ["tecnico", "admin"])
-            
-            btn_crear = st.form_submit_button("Crear Usuario")
-
-            if btn_crear:
-                if not nuevo_user or not nuevo_pass or not nuevo_nombre:
-                    st.warning("Todos los campos son obligatorios.")
-                else:
-                    try:
-                        q_insert = text("""
-                        INSERT INTO usuarios (username, password_hash, nombre, rol)
-                        VALUES (:u, :p, :n, :r);
-                        """)
-                        with engine.begin() as conn:
-                            conn.execute(q_insert, {
-                                "u": nuevo_user,
-                                "p": hash_password(nuevo_pass),
-                                "n": nuevo_nombre,
-                                "r": nuevo_rol
-                            })
-                        st.success(f"Usuario '{nuevo_user}' creado exitosamente.")
-                    except Exception as e:
-                        st.error(f"Error al crear usuario (quizá el nombre de usuario ya existe).")
-
-    with col_lista:
-        st.subheader("👥 Usuarios Registrados")
-        usuarios_df = pd.read_sql_query("SELECT id, username, nombre, rol FROM usuarios;", engine)
-        st.dataframe(usuarios_df, use_container_width=True)
+                        st.error("❌ La contraseña actual es incorrecta.")
