@@ -99,12 +99,20 @@ elif opcion == "Nueva Inspección":
         with col_info3:
             tecnico = st.text_input("Técnico Inspector")
 
-        st.markdown("#### ⚡ Lecturas de Voltaje (Fase - Fase y Neutro)")
-        v_col1, v_col2, v_col3, v_col4 = st.columns(4)
-        v_ab = v_col1.number_input("V_ab (V)", value=440.0)
-        v_bc = v_col2.number_input("V_bc (V)", value=440.0)
-        v_ca = v_col3.number_input("V_ca (V)", value=440.0)
-        v_n = v_col4.number_input("V_n / Neutro (V)", value=1.0)
+        # VOLTAJES FASE A FASE
+        st.markdown("#### ⚡ Voltajes Fase - Fase ($V_{FF}$)")
+        vf_1, vf_2, vf_3 = st.columns(3)
+        v_ab = vf_1.number_input("V_ab (V)", value=440.0)
+        v_bc = vf_2.number_input("V_bc (V)", value=440.0)
+        v_ca = vf_3.number_input("V_ca (V)", value=440.0)
+
+        # VOLTAJES FASE A NEUTRO / TIERRA
+        st.markdown("#### 📐 Voltajes Fase - Neutro / Tierra ($V_{FN}$)")
+        vn_1, vn_2, vn_3, vn_4 = st.columns(4)
+        v_an = vn_1.number_input("V_an (V)", value=254.0)
+        v_bn = vn_2.number_input("V_bn (V)", value=254.0)
+        v_cn = vn_3.number_input("V_cn (V)", value=254.0)
+        v_n_tierra = vn_4.number_input("V Neutro - Tierra (V)", value=1.0, help="Diferencia de potencial entre neutro y tierra física")
 
         st.markdown("#### 🔌 Consumos de Corriente por Fase y Aislamiento")
         i_col1, i_col2, i_col3, i_col4 = st.columns(4)
