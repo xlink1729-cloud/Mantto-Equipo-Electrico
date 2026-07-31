@@ -98,7 +98,9 @@ def logout():
     st.session_state.username_actual = None
     st.session_state.rol_actual = None
 
+# ---------------------------------------------------------
 # PANTALLA DE LOGIN
+# ---------------------------------------------------------
 if not st.session_state.autenticado:
     st.title("🔒 Acceso al Sistema de Mantenimiento")
     st.caption("Ingresa con tus credenciales para continuar")
@@ -114,7 +116,8 @@ if not st.session_state.autenticado:
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-    st.stop()
+    
+    st.stop()  # <--- ESTA LÍNEA ES CRUCIAL: Detiene el renderizado del resto de la app
 
 # ---------------------------------------------------------
 # BARRA LATERAL (NAVEGACIÓN)
