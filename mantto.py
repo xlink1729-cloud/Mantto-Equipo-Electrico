@@ -121,7 +121,6 @@ if not st.session_state["autenticado"]:
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
-    # Al poner st.stop() fuera del form, evitamos que renderice nada más abajo
     st.stop()
 
 # ---------------------------------------------------------
@@ -132,7 +131,6 @@ st.sidebar.caption(f"Rol: **{st.session_state.rol_actual.upper()}**")
 
 if st.sidebar.button("🔴 Cerrar Sesión"):
     logout()
-    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -190,7 +188,6 @@ elif opcion == "Nueva Inspección":
         with col_info2:
             tipo_equipo = st.selectbox("Tipo de Motor", ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"])
         with col_info3:
-            # El técnico toma por defecto el nombre del usuario logueado
             tecnico = st.text_input("Técnico Inspector", value=st.session_state.usuario_actual)
 
         st.markdown("#### ⚡ Voltajes Fase - Fase ($V_{FF}$)")
@@ -302,3 +299,46 @@ elif opcion == "Mi Perfil":
                         st.success("✅ Contraseña actualizada correctamente.")
                     else:
                         st.error("❌ La contraseña actual es incorrecta.")
+
+# ---------------------------------------------------------
+# 5. GESTIÓN DE USUARIOS (SOLO ADMINISTRADOR)
+# ---------------------------------------------------------
+elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin":
+    st.title("⚙️ Administración de Usuarios")
+
+    col_crear, col_lista = st.columns([1, 1])
+
+    with col_crear:
+        st.subheader("➕ Registrar Nuevo Usuario")
+        with st.form("form_nuevo_usuario", clear_on_submit=True):
+            nuevo_user = st.text_input("Nombre de usuario (ej. jsmith)")
+            nuevo_nombre = st.text_input("Nombre Completo (ej. Juan Smith)")
+            nuevo_pass = st.text_input("Contraseña", type="password")
+            nuevo_rol = st.selectbox("Rol de Acceso", ["tecnico", "admin"])
+            
+            btn_crear = st.form_submit_button("Crear Usuario")
+
+            if btn_crear:
+                if not nuevo_user or not nuevo_pass or not nuevo_nombre:
+                    st.warning("Todos los campos son obligatorios.")
+                else:
+                    try:
+                        q_insert = text("""
+                        INSERT INTO usuarios (username, password_hash, nombre, rol)
+                        VALUES (:u, :p, :n, :r);
+                        """)
+                        with engine.begin() as conn:
+                            conn.execute(q_insert, {
+                                "u": nuevo_user,
+                                "p": hash_password(nuevo_pass),
+                                "n": nuevo_nombre,
+                                "r": nuevo_rol
+                            })
+                        st.success(f"Usuario '{nuevo_user}' creado exitosamente.")
+                    except Exception as e:
+                        st.error("Error al crear usuario (quizá el nombre de usuario ya existe).")
+
+    with col_lista:
+        st.subheader("👥 Usuarios Registrados")
+        usuarios_df = pd.read_sql_query("SELECT id, username, nombre, rol FROM usuarios;", engine)
+        st.dataframe(usuarios_df, use_container_width=True)
