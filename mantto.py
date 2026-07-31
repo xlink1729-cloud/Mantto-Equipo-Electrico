@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from sqlalchemy import create_engine, text
 
 st.set_page_config(
     page_title="Mantenimiento Bombas & Motores",
@@ -8,46 +9,43 @@ st.set_page_config(
     layout="wide"
 )
 
-# Base de datos simulada en memoria
-if "registros_bombas" not in st.session_state:
-    st.session_state.registros_bombas = pd.DataFrame([
-        {
-            "Fecha": "2026-07-28",
-            "Equipo": "Bomba Sumergible Pozo 01",
-            "Tipo": "Sumergible",
-            "V_ab": 440, "V_bc": 442, "V_ca": 438,
-            "Desbalance V (%)": 0.45,
-            "I_a": 85.0, "I_b": 86.5, "I_c": 84.5,
-            "Desbalance I (%)": 1.4,
-            "Vn (V)": 1.2,
-            "Aislamiento (MΩ)": 150.0,
-            "Estado": "Normal",
-            "Técnico": "Carlos R."
-        },
-        {
-            "Fecha": "2026-07-30",
-            "Equipo": "Motor Vertical Turbina MV-02",
-            "Tipo": "Vertical",
-            "V_ab": 440, "V_bc": 420, "V_ca": 445,
-            "Desbalance V (%)": 3.4,
-            "I_a": 110.0, "I_b": 128.0, "I_c": 112.0,
-            "Desbalance I (%)": 9.7,
-            "Vn (V)": 4.5,
-            "Aislamiento (MΩ)": 8.5,
-            "Estado": "Crítico",
-            "Técnico": "Ana P."
-        }
-    ])
+# ---------------------------------------------------------
+# CONEXIÓN A LA BASE DE DATOS (NEON POSTGRESQL)
+# ---------------------------------------------------------
+@st.cache_resource
+def get_db_engine():
+    # Obtiene la URL guardada en st.secrets
+    db_url = st.secrets["postgres"]["url"]
+    return create_engine(db_url)
 
-st.title("🌊 Monitoreo Eléctrico: Bombas y Motores Verticales")
+engine = get_db_engine()
 
-opcion = st.sidebar.radio(
-    "Menú",
-    ["Dashboard de Operación", "Nueva Inspección", "Historial de Mediciones"]
-)
+# Inicializar tabla en Neon si no existe
+def inicializar_bd():
+    query = text("""
+    CREATE TABLE IF NOT EXISTS inspecciones_bombas (
+        id SERIAL PRIMARY KEY,
+        fecha DATE,
+        equipo VARCHAR(100),
+        tipo VARCHAR(50),
+        v_ab FLOAT, v_bc FLOAT, v_ca FLOAT,
+        desbalance_v FLOAT,
+        i_a FLOAT, i_b FLOAT, i_c FLOAT,
+        desbalance_i FLOAT,
+        v_n FLOAT,
+        aislamiento_megger FLOAT,
+        estado VARCHAR(20),
+        tecnico VARCHAR(100),
+        observaciones TEXT
+    );
+    """)
+    with engine.begin() as conn:
+        conn.execute(query)
+
+inicializar_bd()
 
 # ---------------------------------------------------------
-# FUNCIONES AUXILIARES DE CÁLCULO
+# FUNCIONES AUXILIARES
 # ---------------------------------------------------------
 def calcular_desbalance(v1, v2, v3):
     promedio = (v1 + v2 + v3) / 3
@@ -56,33 +54,46 @@ def calcular_desbalance(v1, v2, v3):
     max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
     return round((max_desviacion / promedio) * 100, 2)
 
+def obtener_datos():
+    query = "SELECT * FROM inspecciones_bombas ORDER BY fecha DESC, id DESC;"
+    return pd.read_sql_query(query, engine)
+
 # ---------------------------------------------------------
+# INTERFAZ
+# ---------------------------------------------------------
+st.title("🌊 Monitoreo Eléctrico: Bombas y Motores Verticales")
+
+opcion = st.sidebar.radio(
+    "Menú",
+    ["Dashboard de Operación", "Nueva Inspección", "Historial de Mediciones"]
+)
+
 # 1. DASHBOARD
-# ---------------------------------------------------------
 if opcion == "Dashboard de Operación":
-    st.subheader("Indicadores Generales del Sistema")
-    df = st.session_state.registros_bombas
+    st.subheader("Indicadores Generales del Sistema (Base de Datos Neon)")
+    df = obtener_datos()
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Inspecciones", len(df))
-    c2.metric("Sistemas Normales", len(df[df["Estado"] == "Normal"]))
-    c3.metric("En Advertencia", len(df[df["Estado"] == "Advertencia"]))
-    c4.metric("Estado Crítico", len(df[df["Estado"] == "Crítico"]), delta_color="inverse")
+    if df.empty:
+        st.info("Aún no hay registros en la base de datos. Agrega uno en 'Nueva Inspección'.")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Inspecciones", len(df))
+        c2.metric("Sistemas Normales", len(df[df["estado"] == "Normal"]))
+        c3.metric("En Advertencia", len(df[df["estado"] == "Advertencia"]))
+        c4.metric("Estado Crítico", len(df[df["estado"] == "Crítico"]), delta_color="inverse")
 
-    st.markdown("---")
-    st.write("### Resumen de Equipos Medidos")
-    st.dataframe(df, use_container_width=True)
+        st.markdown("---")
+        st.write("### Últimos Registros Guardados")
+        st.dataframe(df, use_container_width=True)
 
-# ---------------------------------------------------------
 # 2. NUEVA INSPECCIÓN
-# ---------------------------------------------------------
 elif opcion == "Nueva Inspección":
     st.subheader("Lectura Electromecánica en Campo")
 
     with st.form("form_bomba", clear_on_submit=True):
         col_info1, col_info2, col_info3 = st.columns(3)
         with col_info1:
-            equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 02")
+            equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 01")
         with col_info2:
             tipo_equipo = st.selectbox("Tipo de Motor", ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"])
         with col_info3:
@@ -90,36 +101,26 @@ elif opcion == "Nueva Inspección":
 
         st.markdown("#### ⚡ Lecturas de Voltaje (Fase - Fase y Neutro)")
         v_col1, v_col2, v_col3, v_col4 = st.columns(4)
-        with v_col1:
-            v_ab = st.number_input("V_ab (V)", value=440.0)
-        with v_col2:
-            v_bc = st.number_input("V_bc (V)", value=440.0)
-        with v_col3:
-            v_ca = st.number_input("V_ca (V)", value=440.0)
-        with v_col4:
-            v_n = st.number_input("V_n / Neutro (V)", value=1.0)
+        v_ab = v_col1.number_input("V_ab (V)", value=440.0)
+        v_bc = v_col2.number_input("V_bc (V)", value=440.0)
+        v_ca = v_col3.number_input("V_ca (V)", value=440.0)
+        v_n = v_col4.number_input("V_n / Neutro (V)", value=1.0)
 
         st.markdown("#### 🔌 Consumos de Corriente por Fase y Aislamiento")
         i_col1, i_col2, i_col3, i_col4 = st.columns(4)
-        with i_col1:
-            i_a = st.number_input("Fase A (A)", value=50.0)
-        with i_col2:
-            i_b = st.number_input("Fase B (A)", value=50.0)
-        with i_col3:
-            i_c = st.number_input("Fase C (A)", value=50.0)
-        with i_col4:
-            aislamiento = st.number_input("Aislamiento Megger (MΩ)", value=100.0, help="Lectura de aislamiento a tierra")
+        i_a = i_col1.number_input("Fase A (A)", value=50.0)
+        i_b = i_col2.number_input("Fase B (A)", value=50.0)
+        i_c = i_col3.number_input("Fase C (A)", value=50.0)
+        aislamiento = i_col4.number_input("Aislamiento Megger (MΩ)", value=100.0)
 
-        enviado = st.form_submit_button("Calcular Indicadores y Guardar")
+        observaciones = st.text_area("Observaciones adicionales")
+
+        enviado = st.form_submit_button("Guardar en Base de Datos Neon")
 
         if enviado:
-            # Cálculos automáticos
             desb_v = calcular_desbalance(v_ab, v_bc, v_ca)
             desb_i = calcular_desbalance(i_a, i_b, i_c)
 
-            # Evaluación de criterios de seguridad (Ejemplo NEMA)
-            # - Desbalance V > 2% o Desbalance I > 10% o Megger < 10MΩ -> Crítico
-            # - Desbalance V > 1% o Desbalance I > 5% o Megger < 50MΩ -> Advertencia
             if desb_v > 2.0 or desb_i > 10.0 or aislamiento < 10.0:
                 estado_eval = "Crítico"
             elif desb_v > 1.0 or desb_i > 5.0 or aislamiento < 50.0:
@@ -127,36 +128,36 @@ elif opcion == "Nueva Inspección":
             else:
                 estado_eval = "Normal"
 
-            nuevo_reg = {
-                "Fecha": datetime.today().strftime('%Y-%m-%d'),
-                "Equipo": equipo,
-                "Tipo": tipo_equipo,
-                "V_ab": v_ab, "V_bc": v_bc, "V_ca": v_ca,
-                "Desbalance V (%)": desb_v,
-                "I_a": i_a, "I_b": i_b, "I_c": i_c,
-                "Desbalance I (%)": desb_i,
-                "Vn (V)": v_n,
-                "Aislamiento (MΩ)": aislamiento,
-                "Estado": estado_eval,
-                "Técnico": tecnico
+            # Insertar registro directamente en Neon
+            insert_query = text("""
+            INSERT INTO inspecciones_bombas 
+            (fecha, equipo, tipo, v_ab, v_bc, v_ca, desbalance_v, i_a, i_b, i_c, desbalance_i, v_n, aislamiento_megger, estado, tecnico, observaciones)
+            VALUES 
+            (:fecha, :equipo, :tipo, :v_ab, :v_bc, :v_ca, :desb_v, :i_a, :i_b, :i_c, :desb_i, :v_n, :aislamiento, :estado, :tecnico, :obs);
+            """)
+
+            datos_insertar = {
+                "fecha": datetime.today().strftime('%Y-%m-%d'),
+                "equipo": equipo,
+                "tipo": tipo_equipo,
+                "v_ab": v_ab, "v_bc": v_bc, "v_ca": v_ca,
+                "desb_v": desb_v,
+                "i_a": i_a, "i_b": i_b, "i_c": i_c,
+                "desb_i": desb_i,
+                "v_n": v_n,
+                "aislamiento": aislamiento,
+                "estado": estado_eval,
+                "tecnico": tecnico,
+                "obs": observaciones
             }
 
-            st.session_state.registros_bombas = pd.concat(
-                [st.session_state.registros_bombas, pd.DataFrame([nuevo_reg])],
-                ignore_index=True
-            )
+            with engine.begin() as conn:
+                conn.execute(insert_query, datos_insertar)
 
-            # Mostrar alertas al guardar
-            if estado_eval == "Crítico":
-                st.error(f"⚠️ **Atención:** El registro indica un estado **CRÍTICO**. Desbalance de Voltaje: {desb_v}%, Desbalance de Corriente: {desb_i}%, Megger: {aislamiento} MΩ.")
-            elif estado_eval == "Advertencia":
-                st.warning(f"⚡ **Advertencia:** Parámetros fuera de rango óptimo. Desbalance V: {desb_v}%, Desbalance I: {desb_i}%.")
-            else:
-                st.success("✅ Registro guardado. Todos los valores están dentro del rango operativo seguro.")
+            st.success(f"✅ Registro guardado permanentemente en Neon para '{equipo}'. Estado: {estado_eval}.")
 
-# ---------------------------------------------------------
 # 3. HISTORIAL
-# ---------------------------------------------------------
 elif opcion == "Historial de Mediciones":
     st.subheader("Consultar Registros")
-    st.dataframe(st.session_state.registros_bombas, use_container_width=True)
+    df = obtener_datos()
+    st.dataframe(df, use_container_width=True)
