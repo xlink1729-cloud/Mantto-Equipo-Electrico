@@ -38,7 +38,6 @@ def inicializar_bd():
         i_a FLOAT, i_b FLOAT, i_c FLOAT,
         desbalance_i FLOAT,
         v_n_tierra FLOAT,
-        aislamiento_megger FLOAT,
         estado VARCHAR(20),
         tecnico VARCHAR(100),
         observaciones TEXT
@@ -226,12 +225,11 @@ elif opcion == "Nueva Inspección":
         v_cn = vn_3.number_input("V_cn (V)", value=254.0)
         v_n_tierra = vn_4.number_input("V Neutro - Tierra (V)", value=1.0)
 
-        st.markdown("#### 🔌 Consumos de Corriente por Fase y Megger")
-        i_col1, i_col2, i_col3, i_col4 = st.columns(4)
+        st.markdown("#### 🔌 Consumos de Corriente por Fase")
+        i_col1, i_col2, i_col3 = st.columns(3)
         i_a = i_col1.number_input("Fase A (A)", value=50.0)
         i_b = i_col2.number_input("Fase B (A)", value=50.0)
         i_c = i_col3.number_input("Fase C (A)", value=50.0)
-        aislamiento = i_col4.number_input("Aislamiento Megger (MΩ)", value=100.0)
 
         observaciones = st.text_area("Observaciones adicionales")
 
@@ -242,18 +240,18 @@ elif opcion == "Nueva Inspección":
             desb_v_fn = calcular_desbalance(v_an, v_bn, v_cn)
             desb_i = calcular_desbalance(i_a, i_b, i_c)
 
-            if desb_v_ff > 2.0 or desb_v_fn > 2.0 or desb_i > 10.0 or v_n_tierra > 5.0 or aislamiento < 10.0:
+            if desb_v_ff > 2.0 or desb_v_fn > 2.0 or desb_i > 10.0 or v_n_tierra > 5.0:
                 estado_eval = "Crítico"
-            elif desb_v_ff > 1.0 or desb_v_fn > 1.0 or desb_i > 5.0 or v_n_tierra > 2.0 or aislamiento < 50.0:
+            elif desb_v_ff > 1.0 or desb_v_fn > 1.0 or desb_i > 5.0 or v_n_tierra > 2.0:
                 estado_eval = "Advertencia"
             else:
                 estado_eval = "Normal"
 
             insert_query = text("""
             INSERT INTO inspecciones_bombas 
-            (fecha, equipo, tipo, v_ab, v_bc, v_ca, desbalance_v_ff, v_an, v_bn, v_cn, desbalance_v_fn, i_a, i_b, i_c, desbalance_i, v_n_tierra, aislamiento_megger, estado, tecnico, observaciones)
+            (fecha, equipo, tipo, v_ab, v_bc, v_ca, desbalance_v_ff, v_an, v_bn, v_cn, desbalance_v_fn, i_a, i_b, i_c, desbalance_i, v_n_tierra, estado, tecnico, observaciones)
             VALUES 
-            (:fecha, :equipo, :tipo, :v_ab, :v_bc, :v_ca, :desb_v_ff, :v_an, :v_bn, :v_cn, :desb_v_fn, :i_a, :i_b, :i_c, :desb_i, :v_n_tierra, :aislamiento, :estado, :tecnico, :obs);
+            (:fecha, :equipo, :tipo, :v_ab, :v_bc, :v_ca, :desb_v_ff, :v_an, :v_bn, :v_cn, :desb_v_fn, :i_a, :i_b, :i_c, :desb_i, :v_n_tierra, :estado, :tecnico, :obs);
             """)
 
             datos_insertar = {
@@ -267,7 +265,6 @@ elif opcion == "Nueva Inspección":
                 "i_a": i_a, "i_b": i_b, "i_c": i_c,
                 "desb_i": desb_i,
                 "v_n_tierra": v_n_tierra,
-                "aislamiento": aislamiento,
                 "estado": estado_eval,
                 "tecnico": tecnico,
                 "obs": observaciones
@@ -279,7 +276,7 @@ elif opcion == "Nueva Inspección":
             st.success(f"✅ Registro guardado exitosamente. Estado evaluado: **{estado_eval}**.")
 
 # ---------------------------------------------------------
-# 3. REGISTRO DE EVENTOS (NUEVA PESTAÑA)
+# 3. REGISTRO DE EVENTOS
 # ---------------------------------------------------------
 elif opcion == "Registro de Eventos":
     st.title("🚨 Bitácora y Registro de Eventos")
@@ -308,7 +305,7 @@ elif opcion == "Registro de Eventos":
 
             with col2:
                 descripcion_ev = st.text_area("Descripción / Causa Raíz", placeholder="Detalla qué sucedió exactamente...")
-                accion_ev = st.text_input("Acción Inmediata Tomada", placeholder="Ej. Se aisló térmicamente el motor y notificó...")
+                accion_ev = st.text_input("Acción Inmediata Tomada", placeholder="Ej. Se aisló el equipo y notificó...")
                 estatus_ev = st.selectbox("Estatus del Evento", ["Abierto", "En Revisión", "Resuelto"])
 
             btn_evento = st.form_submit_button("Guardar Evento en BD")
@@ -344,7 +341,6 @@ elif opcion == "Registro de Eventos":
     if df_eventos.empty:
         st.info("Aún no hay eventos ni incidentes registrados.")
     else:
-        # Filtros opcionales
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             filtro_eq = st.multiselect("Filtrar por Equipo:", df_eventos["equipo"].unique())
@@ -359,7 +355,6 @@ elif opcion == "Registro de Eventos":
 
         st.dataframe(df_evt_filtered, use_container_width=True)
 
-        # Descarga rápida
         csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Exportar Eventos a CSV",
