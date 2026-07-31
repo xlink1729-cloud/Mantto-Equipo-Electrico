@@ -23,7 +23,7 @@ engine = get_db_engine()
 def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-# Inicializar tablas de Usuarios e Inspecciones en Neon
+# Inicializar tablas en Neon
 def inicializar_bd():
     query_inspecciones = text("""
     CREATE TABLE IF NOT EXISTS inspecciones_bombas (
@@ -59,23 +59,24 @@ def inicializar_bd():
         conn.execute(query_inspecciones)
         conn.execute(query_usuarios)
         
-        # Crear un usuario administrador por defecto si no existen usuarios
+        # Crear usuario administrador por defecto si no hay usuarios
         res = conn.execute(text("SELECT COUNT(*) FROM usuarios;")).scalar()
         if res == 0:
             pass_default = hash_password("mantto2026")
             conn.execute(
                 text("INSERT INTO usuarios (username, password_hash, nombre, rol) VALUES (:u, :p, :n, :r);"),
-                {"u": "admin", "p": pass_default, "n": "Administrador Mantto", "r": "admin"}
+                {"u": "admin", "p": pass_default, "n": "Administrador Principal", "r": "admin"}
             )
 
 inicializar_bd()
 
 # ---------------------------------------------------------
-# AUTENTICACIÓN Y SESIONES
+# CONTROL DE SESIÓN Y LOGIN
 # ---------------------------------------------------------
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
     st.session_state.usuario_actual = None
+    st.session_state.username_actual = None
     st.session_state.rol_actual = None
 
 def login(usuario, password):
@@ -85,6 +86,7 @@ def login(usuario, password):
         result = conn.execute(query, {"u": usuario, "p": pass_hash}).fetchone()
         if result:
             st.session_state.autenticado = True
+            st.session_state.username_actual = result.username
             st.session_state.usuario_actual = result.nombre
             st.session_state.rol_actual = result.rol
             return True
@@ -93,14 +95,13 @@ def login(usuario, password):
 def logout():
     st.session_state.autenticado = False
     st.session_state.usuario_actual = None
+    st.session_state.username_actual = None
     st.session_state.rol_actual = None
 
-# ---------------------------------------------------------
 # PANTALLA DE LOGIN
-# ---------------------------------------------------------
 if not st.session_state.autenticado:
     st.title("🔒 Acceso al Sistema de Mantenimiento")
-    st.caption("Ingresa con tus credenciales asignadas")
+    st.caption("Ingresa con tus credenciales para continuar")
 
     with st.form("form_login"):
         user_input = st.text_input("Usuario")
@@ -113,18 +114,222 @@ if not st.session_state.autenticado:
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-    st.info("💡 **Usuario por defecto:** `admin` | **Contraseña:** `mantto2026` (Cambiar al iniciar).")
-    st.stop()  # Detiene la ejecución del script aquí si no está autenticado
+    st.stop()
 
 # ---------------------------------------------------------
-# APLICACIÓN PRINCIPAL (SOLO ACCESIBLE CON LOGIN)
+# BARRA LATERAL (NAVEGACIÓN)
 # ---------------------------------------------------------
-st.sidebar.write(f"👤 **Usuario:** {st.session_state.usuario_actual}")
-st.sidebar.write(f"🔰 **Rol:** {st.session_state.rol_actual.capitalize()}")
-if st.sidebar.button("Cerrar Sesión"):
+st.sidebar.markdown(f"### 👤 {st.session_state.usuario_actual}")
+st.sidebar.caption(f"Rol: **{st.session_state.rol_actual.upper()}**")
+
+if st.sidebar.button("🔴 Cerrar Sesión"):
     logout()
     st.rerun()
 
-st.title("🌊 Monitoreo Eléctrico: Bombas y Motores Verticales")
+st.sidebar.markdown("---")
 
-# [AQUÍ Sigue el menú principal con el Dashboard, Formulario e Historial]
+# Opciones del menú según el rol
+opciones_menu = ["Dashboard de Operación", "Nueva Inspección", "Historial de Mediciones", "Mi Perfil"]
+if st.session_state.rol_actual == "admin":
+    opciones_menu.append("Gestión de Usuarios")
+
+opcion = st.sidebar.radio("Menú Principal", opciones_menu)
+
+# ---------------------------------------------------------
+# FUNCIONES AUXILIARES
+# ---------------------------------------------------------
+def calcular_desbalance(v1, v2, v3):
+    promedio = (v1 + v2 + v3) / 3
+    if promedio == 0:
+        return 0.0
+    max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
+    return round((max_desviacion / promedio) * 100, 2)
+
+def obtener_datos():
+    query = "SELECT * FROM inspecciones_bombas ORDER BY fecha DESC, id DESC;"
+    return pd.read_sql_query(query, engine)
+
+# ---------------------------------------------------------
+# 1. DASHBOARD
+# ---------------------------------------------------------
+if opcion == "Dashboard de Operación":
+    st.title("🌊 Monitoreo Eléctrico: Bombas y Motores Verticales")
+    df = obtener_datos()
+
+    if df.empty:
+        st.info("Aún no hay registros en la base de datos. Agrega uno en 'Nueva Inspección'.")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Inspecciones", len(df))
+        c2.metric("Sistemas Normales", len(df[df["estado"] == "Normal"]))
+        c3.metric("En Advertencia", len(df[df["estado"] == "Advertencia"]))
+        c4.metric("Estado Crítico", len(df[df["estado"] == "Crítico"]), delta_color="inverse")
+
+        st.markdown("---")
+        st.write("### Últimos Registros Guardados")
+        st.dataframe(df, use_container_width=True)
+
+# ---------------------------------------------------------
+# 2. NUEVA INSPECCIÓN
+# ---------------------------------------------------------
+elif opcion == "Nueva Inspección":
+    st.title("📋 Lectura Electromecánica en Campo")
+
+    with st.form("form_bomba", clear_on_submit=True):
+        col_info1, col_info2, col_info3 = st.columns(3)
+        with col_info1:
+            equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 01")
+        with col_info2:
+            tipo_equipo = st.selectbox("Tipo de Motor", ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"])
+        with col_info3:
+            # El técnico toma por defecto el nombre del usuario logueado
+            tecnico = st.text_input("Técnico Inspector", value=st.session_state.usuario_actual)
+
+        st.markdown("#### ⚡ Voltajes Fase - Fase ($V_{FF}$)")
+        vf_1, vf_2, vf_3 = st.columns(3)
+        v_ab = vf_1.number_input("V_ab (V)", value=440.0)
+        v_bc = vf_2.number_input("V_bc (V)", value=440.0)
+        v_ca = vf_3.number_input("V_ca (V)", value=440.0)
+
+        st.markdown("#### 📐 Voltajes Fase - Neutro / Tierra ($V_{FN}$)")
+        vn_1, vn_2, vn_3, vn_4 = st.columns(4)
+        v_an = vn_1.number_input("V_an (V)", value=254.0)
+        v_bn = vn_2.number_input("V_bn (V)", value=254.0)
+        v_cn = vn_3.number_input("V_cn (V)", value=254.0)
+        v_n_tierra = vn_4.number_input("V Neutro - Tierra (V)", value=1.0)
+
+        st.markdown("#### 🔌 Consumos de Corriente por Fase y Megger")
+        i_col1, i_col2, i_col3, i_col4 = st.columns(4)
+        i_a = i_col1.number_input("Fase A (A)", value=50.0)
+        i_b = i_col2.number_input("Fase B (A)", value=50.0)
+        i_c = i_col3.number_input("Fase C (A)", value=50.0)
+        aislamiento = i_col4.number_input("Aislamiento Megger (MΩ)", value=100.0)
+
+        observaciones = st.text_area("Observaciones adicionales")
+
+        enviado = st.form_submit_button("Guardar Registro en Neon")
+
+        if enviado:
+            desb_v_ff = calcular_desbalance(v_ab, v_bc, v_ca)
+            desb_v_fn = calcular_desbalance(v_an, v_bn, v_cn)
+            desb_i = calcular_desbalance(i_a, i_b, i_c)
+
+            if desb_v_ff > 2.0 or desb_v_fn > 2.0 or desb_i > 10.0 or v_n_tierra > 5.0 or aislamiento < 10.0:
+                estado_eval = "Crítico"
+            elif desb_v_ff > 1.0 or desb_v_fn > 1.0 or desb_i > 5.0 or v_n_tierra > 2.0 or aislamiento < 50.0:
+                estado_eval = "Advertencia"
+            else:
+                estado_eval = "Normal"
+
+            insert_query = text("""
+            INSERT INTO inspecciones_bombas 
+            (fecha, equipo, tipo, v_ab, v_bc, v_ca, desbalance_v_ff, v_an, v_bn, v_cn, desbalance_v_fn, i_a, i_b, i_c, desbalance_i, v_n_tierra, aislamiento_megger, estado, tecnico, observaciones)
+            VALUES 
+            (:fecha, :equipo, :tipo, :v_ab, :v_bc, :v_ca, :desb_v_ff, :v_an, :v_bn, :v_cn, :desb_v_fn, :i_a, :i_b, :i_c, :desb_i, :v_n_tierra, :aislamiento, :estado, :tecnico, :obs);
+            """)
+
+            datos_insertar = {
+                "fecha": datetime.today().strftime('%Y-%m-%d'),
+                "equipo": equipo,
+                "tipo": tipo_equipo,
+                "v_ab": v_ab, "v_bc": v_bc, "v_ca": v_ca,
+                "desb_v_ff": desb_v_ff,
+                "v_an": v_an, "v_bn": v_bn, "v_cn": v_cn,
+                "desb_v_fn": desb_v_fn,
+                "i_a": i_a, "i_b": i_b, "i_c": i_c,
+                "desb_i": desb_i,
+                "v_n_tierra": v_n_tierra,
+                "aislamiento": aislamiento,
+                "estado": estado_eval,
+                "tecnico": tecnico,
+                "obs": observaciones
+            }
+
+            with engine.begin() as conn:
+                conn.execute(insert_query, datos_insertar)
+
+            st.success(f"✅ Registro guardado exitosamente. Estado evaluado: **{estado_eval}**.")
+
+# ---------------------------------------------------------
+# 3. HISTORIAL
+# ---------------------------------------------------------
+elif opcion == "Historial de Mediciones":
+    st.title("📊 Historial de Mediciones")
+    df = obtener_datos()
+    st.dataframe(df, use_container_width=True)
+
+# ---------------------------------------------------------
+# 4. MI PERFIL (CAMBIO DE CONTRASEÑA)
+# ---------------------------------------------------------
+elif opcion == "Mi Perfil":
+    st.title("👤 Configuración de Perfil")
+    st.write(f"**Nombre:** {st.session_state.usuario_actual}")
+    st.write(f"**Usuario:** {st.session_state.username_actual}")
+    
+    st.subheader("Cambiar Contraseña")
+    with st.form("form_cambiar_pass"):
+        pass_actual = st.text_input("Contraseña Actual", type="password")
+        pass_nueva = st.text_input("Nueva Contraseña", type="password")
+        pass_confirm = st.text_input("Confirmar Nueva Contraseña", type="password")
+        btn_pass = st.form_submit_button("Actualizar Contraseña")
+
+        if btn_pass:
+            if hash_password(pass_actual) != hash_password(pass_actual): # Verificación básica
+                st.error("Revisa tus datos.")
+            elif pass_nueva != pass_confirm:
+                st.error("Las nuevas contraseñas no coinciden.")
+            else:
+                update_q = text("UPDATE usuarios SET password_hash = :p WHERE username = :u AND password_hash = :pa;")
+                with engine.begin() as conn:
+                    res = conn.execute(update_q, {
+                        "p": hash_password(pass_nueva),
+                        "u": st.session_state.username_actual,
+                        "pa": hash_password(pass_actual)
+                    })
+                    if res.rowcount > 0:
+                        st.success("Contraseña actualizada correctamente.")
+                    else:
+                        st.error("La contraseña actual es incorrecta.")
+
+# ---------------------------------------------------------
+# 5. GESTIÓN DE USUARIOS (SOLO ADMINISTRADOR)
+# ---------------------------------------------------------
+elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin":
+    st.title("⚙️ Administración de Usuarios")
+
+    col_crear, col_lista = st.columns([1, 1])
+
+    with col_crear:
+        st.subheader("➕ Registrar Nuevo Usuario")
+        with st.form("form_nuevo_usuario", clear_on_submit=True):
+            nuevo_user = st.text_input("Nombre de usuario (ej. jsmith)")
+            nuevo_nombre = st.text_input("Nombre Completo (ej. Juan Smith)")
+            nuevo_pass = st.text_input("Contraseña", type="password")
+            nuevo_rol = st.selectbox("Rol de Acceso", ["tecnico", "admin"])
+            
+            btn_crear = st.form_submit_button("Crear Usuario")
+
+            if btn_crear:
+                if not nuevo_user or not nuevo_pass or not nuevo_nombre:
+                    st.warning("Todos los campos son obligatorios.")
+                else:
+                    try:
+                        q_insert = text("""
+                        INSERT INTO usuarios (username, password_hash, nombre, rol)
+                        VALUES (:u, :p, :n, :r);
+                        """)
+                        with engine.begin() as conn:
+                            conn.execute(q_insert, {
+                                "u": nuevo_user,
+                                "p": hash_password(nuevo_pass),
+                                "n": nuevo_nombre,
+                                "r": nuevo_rol
+                            })
+                        st.success(f"Usuario '{nuevo_user}' creado exitosamente.")
+                    except Exception as e:
+                        st.error(f"Error al crear usuario (quizá el nombre de usuario ya existe).")
+
+    with col_lista:
+        st.subheader("👥 Usuarios Registrados")
+        usuarios_df = pd.read_sql_query("SELECT id, username, nombre, rol FROM usuarios;", engine)
+        st.dataframe(usuarios_df, use_container_width=True)
