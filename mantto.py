@@ -1,4 +1,6 @@
 import streamlit as st
+st.warning("⚠️ PROBANDO CAMBIOS DE SEGURIDAD") # <--- Agrega esto
+import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import create_engine, text
@@ -71,10 +73,10 @@ def inicializar_bd():
 inicializar_bd()
 
 # ---------------------------------------------------------
-# CONTROL DE SESIÓN Y LOGIN
+# CONTROL DE SESIÓN Y LOGIN (VERSIÓN FORZADA)
 # ---------------------------------------------------------
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
+if "autenticado_v2" not in st.session_state:
+    st.session_state["autenticado_v2"] = False
 if "usuario_actual" not in st.session_state:
     st.session_state["usuario_actual"] = None
 if "username_actual" not in st.session_state:
@@ -88,7 +90,7 @@ def login(usuario, password):
     with engine.connect() as conn:
         result = conn.execute(query, {"u": usuario, "p": pass_hash}).fetchone()
         if result:
-            st.session_state["autenticado"] = True
+            st.session_state["autenticado_v2"] = True
             st.session_state["username_actual"] = result.username
             st.session_state["usuario_actual"] = result.nombre
             st.session_state["rol_actual"] = result.rol
@@ -96,11 +98,30 @@ def login(usuario, password):
         return False
 
 def logout():
-    st.session_state["autenticado"] = False
+    st.session_state["autenticado_v2"] = False
     st.session_state["usuario_actual"] = None
     st.session_state["username_actual"] = None
     st.session_state["rol_actual"] = None
     st.rerun()
+
+# PANTALLA DE LOGIN
+if not st.session_state["autenticado_v2"]:
+    st.title("🔒 Acceso al Sistema de Mantenimiento")
+    st.caption("Ingresa con tus credenciales para continuar")
+
+    with st.form("form_login"):
+        user_input = st.text_input("Usuario")
+        pass_input = st.text_input("Contraseña", type="password")
+        btn_ingresar = st.form_submit_button("Iniciar Sesión")
+
+        if btn_ingresar:
+            if login(user_input, pass_input):
+                st.success("Acceso concedido.")
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos.")
+
+    st.stop()
 
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN (BLOQUEANTE)
