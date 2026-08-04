@@ -626,96 +626,96 @@ elif opcion == "Nueva Inspección Eléctrica":
 # ---------------------------------------------------------
 elif opcion == "🔥 Inspección Termográfica (FLIR)":
     st.title("🔥 Registro Termográfico Adaptativo")
-    st.caption("Los campos de medición se adaptan según el componente seleccionado.")
+    st.caption("Los campos de medición se adaptan dinámicamente según el componente seleccionado.")
 
     df_equipos_cat = obtener_equipos()
 
     tab_termo_nuevo, tab_termo_historial = st.tabs(["➕ Registrar Lecturas FLIR", "📜 Historial Térmico"])
 
     with tab_termo_nuevo:
-        with st.form("form_termografia_flir_dinamico", clear_on_submit=True):
-            col_eq, col_punto, col_fecha = st.columns(3)
-            
-            with col_eq:
-                if not df_equipos_cat.empty:
-                    equipo_id = st.selectbox("Seleccionar Equipo", df_equipos_cat["codigo_equipo"].tolist())
-                else:
-                    equipo_id = st.text_input("Identificador del Equipo", value="Motor-Bomba-01").strip()
-            
-            with col_punto:
-                punto = st.selectbox(
-                    "Punto / Componente Medido", 
-                    [
-                        "Motor (Mecánico/Térmico)", 
-                        "ITM (Interruptor Termomagnético)", 
-                        "Fusibles", 
-                        "Arrancador / Contactor"
-                    ]
-                )
-            
-            with col_fecha:
-                fecha_termo = st.date_input("Fecha de Inspección", value=datetime.today().date())
+        # Selección fuera del formulario para forzar el refresco de etiquetas en tiempo real
+        col_eq, col_punto, col_fecha = st.columns(3)
+        
+        with col_eq:
+            if not df_equipos_cat.empty:
+                equipo_id = st.selectbox("Seleccionar Equipo", df_equipos_cat["codigo_equipo"].tolist())
+            else:
+                equipo_id = st.text_input("Identificador del Equipo", value="Motor-Bomba-01").strip()
+        
+        with col_punto:
+            punto = st.selectbox(
+                "Punto / Componente Medido", 
+                [
+                    "Motor (Mecánico/Térmico)", 
+                    "ITM (Interruptor Termomagnético)", 
+                    "Fusibles", 
+                    "Arrancador / Contactor"
+                ],
+                key="punto_termo_select"
+            )
+        
+        with col_fecha:
+            fecha_termo = st.date_input("Fecha de Inspección", value=datetime.today().date())
 
-            st.markdown("---")
+        st.markdown("---")
+
+        with st.form("form_termografia_flir_dinamico", clear_on_submit=True):
             st.subheader("🌡️ Temperaturas de Componentes (°C)")
-            
             col_m1, col_m2, col_m3 = st.columns(3)
 
-            # Adaptación dinámica de campos según el tipo de componente
+            # Usamos keys dinámicas en st.number_input para forzar actualización de labels
             if "Motor" in punto:
                 with col_m1:
-                    t1 = st.number_input("🔩 Balero Superior (°C)", value=45.0, step=0.1)
+                    t1 = st.number_input("🔩 Balero Superior (°C)", value=45.0, step=0.1, key="t_bal_sup")
                 with col_m2:
-                    t2 = st.number_input("🔩 Balero Inferior (°C)", value=42.0, step=0.1)
+                    t2 = st.number_input("🔩 Balero Inferior (°C)", value=42.0, step=0.1, key="t_bal_inf")
                 with col_m3:
-                    t3 = st.number_input("📦 Carcasa (°C)", value=38.0, step=0.1)
+                    t3 = st.number_input("📦 Carcasa (°C)", value=38.0, step=0.1, key="t_carcasa")
                 etiqueta_puntos = f"Balero Sup: {t1}°C | Balero Inf: {t2}°C | Carcasa: {t3}°C"
             else:
                 with col_m1:
-                    t1 = st.number_input("⚡ Fase A (°C)", value=35.0, step=0.1)
+                    t1 = st.number_input("⚡ Fase A / Línea 1 (°C)", value=35.0, step=0.1, key="t_fase_a")
                 with col_m2:
-                    t2 = st.number_input("⚡ Fase B (°C)", value=36.0, step=0.1)
+                    t2 = st.number_input("⚡ Fase B / Línea 2 (°C)", value=36.0, step=0.1, key="t_fase_b")
                 with col_m3:
-                    t3 = st.number_input("⚡ Fase C (°C)", value=35.0, step=0.1)
+                    t3 = st.number_input("⚡ Fase C / Línea 3 (°C)", value=35.0, step=0.1, key="t_fase_c")
                 etiqueta_puntos = f"Fase A: {t1}°C | Fase B: {t2}°C | Fase C: {t3}°C"
 
-            # Cálculos automáticos de ingeniería
+            # Cálculos térmicos automáticos
             hot_spot_calc = max(t1, t2, t3)
             desbalance_max = max(t1, t2, t3) - min(t1, t2, t3)
             promedio_temp = (t1 + t2 + t3) / 3.0
             delta_hotspot = hot_spot_calc - promedio_temp
 
             st.markdown("---")
-            st.markdown(f"**Punto más caliente (Hot Spot):** `{hot_spot_calc:.1f} °C` | **Desbalance Máximo:** `{desbalance_max:.1f} °C`")
+            st.markdown(f"**Hot Spot Detectado:** `{hot_spot_calc:.1f} °C` | **Desbalance Máximo:** `{desbalance_max:.1f} °C`")
 
-            # Criterios de evaluación de severidad
+            # Criterios de evaluación
             if "Motor" in punto:
-                # Criterios mecánicos / temperatura de carcasa y rodamientos
                 if hot_spot_calc >= 90.0 or desbalance_max >= 15.0:
                     estado_termo = "CRITICO"
-                    st.error(f"🚨 Estado: CRÍTICO | Temperatura o desbalance térmico elevado en motor.")
+                    st.error("🚨 Estado: CRÍTICO | Temperatura o desbalance térmico elevado en motor.")
                 elif hot_spot_calc >= 75.0 or desbalance_max >= 8.0:
                     estado_termo = "ADVERTENCIA"
-                    st.warning(f"⚠️ Estado: ADVERTENCIA | Inspeccionar lubricación o sobrecarga.")
+                    st.warning("⚠️ Estado: ADVERTENCIA | Inspeccionar lubricación o carga del motor.")
                 else:
                     estado_termo = "NORMAL"
-                    st.success(f"✅ Estado: NORMAL | Operación dentro de rango térmico seguro.")
+                    st.success("✅ Estado: NORMAL | Temperatura en rango seguro.")
             else:
-                # Criterios eléctricos por fase (NETA / IEEE)
                 if desbalance_max >= 15.0 or hot_spot_calc >= 85.0:
                     estado_termo = "CRITICO"
-                    st.error(f"🚨 Estado: CRÍTICO | Desbalance entre fases: {desbalance_max:.1f} °C (Punto caliente detectado).")
+                    st.error(f"🚨 Estado: CRÍTICO | Desbalance extremo entre fases ({desbalance_max:.1f} °C).")
                 elif desbalance_max >= 4.0 or hot_spot_calc >= 70.0:
                     estado_termo = "ADVERTENCIA"
-                    st.warning(f"⚠️ Estado: ADVERTENCIA | Desbalance entre fases: {desbalance_max:.1f} °C.")
+                    st.warning(f"⚠️ Estado: ADVERTENCIA | Desbalance térmico detectado ({desbalance_max:.1f} °C).")
                 else:
                     estado_termo = "NORMAL"
-                    st.success(f"✅ Estado: NORMAL | Balance térmico de fases adecuado.")
+                    st.success("✅ Estado: NORMAL | Balance de fases térmico óptimo.")
 
             observaciones_termo = st.text_area(
                 "Diagnóstico / Notas Técnicas", 
-                value=f"Lecturas: {etiqueta_puntos}.",
-                placeholder="Ej. Punto caliente localizado en la bornera de conexión Fase B."
+                value=f"Lecturas registradas: {etiqueta_puntos}.",
+                placeholder="Ej. Se observa sobrecalentamiento en la bornera de la Fase B."
             )
             
             btn_guardar_termo = st.form_submit_button("💾 Guardar Registro Termográfico")
@@ -747,7 +747,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                         conn.execute(q_ins_termo, params_termo)
                     st.success(f"✅ Lecturas termográficas guardadas correctamente para **{equipo_id}**.")
                 except Exception as e:
-                    st.error(f"❌ Error al guardar termografía: {e}")
+                    st.error(f"❌ Error al guardar en la base de datos: {e}")
 
     with tab_termo_historial:
         df_termo = obtener_termografias()
