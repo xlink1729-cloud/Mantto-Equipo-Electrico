@@ -733,7 +733,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                 q_ins_termo = text("""
                 INSERT INTO inspecciones_termograficas 
                 (equipo_id, fecha_inspeccion, punto_medicion, hot_spot, spot_1, spot_2, spot_3, desbalance_max, delta_hotspot, estado, observaciones, tecnico)
-                VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs, :tec);
+                VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs);
                 """)
 
                 try:
@@ -772,8 +772,8 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                                 "delta": float(delta),
                                 "est": estado,
                                 "obs": item["obs"],
-                                "tec": st.session_state.usuario_actual
                             }
+
                             conn.execute(q_ins_termo, params)
 
                     st.success(f"✅ Se vaciaron y guardaron exitosamente las lecturas de los 4 componentes para **{equipo_id}**.")
