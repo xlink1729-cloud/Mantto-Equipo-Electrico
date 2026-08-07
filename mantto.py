@@ -901,22 +901,81 @@ elif opcion == "Registro de Eventos":
                 mime="text/csv"
             )
 
-    with tab_gestion:
+with tab_gestion:
         df_eventos = obtener_eventos()
 
         if df_eventos.empty:
             st.info("No hay eventos registrados para modificar o eliminar.")
         else:
-            st.subheader("🛠️ Administrar Evento Existente")
+            st.subheader("🛠️ Administrar o Reconectar / Cerrar Eventos")
+            
+            # Selector para gestionar el evento
             lista_ids_evt = df_eventos['id'].tolist()
-            id_evt_sel = st.selectbox("Selecciona el ID del evento:", lista_ids_evt)
+            
+            # Mapeo descriptivo para el selector desplegable
+            opciones_eventos = {
+                f"ID #{row['id']} | {row['equipo']} | {row['tipo_evento']} [{row['estatus']}]": row['id']
+                for _, row in df_eventos.iterrows()
+            }
+            
+            label_evt_sel = st.selectbox("Selecciona el evento a gestionar:", list(opciones_eventos.keys()))
+            id_evt_sel = opciones_eventos[label_evt_sel]
 
             evt_registro = df_eventos[df_eventos['id'] == id_evt_sel].iloc[0]
 
-            col_edit_evt, col_del_evt = st.columns(2)
+            col_cerrar_evt, col_edit_evt, col_del_evt = st.columns(3)
 
+            # --- OPCIÓN 1: RECONECTAR MOTOR Y CERRAR EVENTO ---
+            with col_cerrar_evt:
+                with st.expander("⚡ Reconectar Motor / Cerrar Evento", expanded=True):
+                    if evt_registro['estatus'] == "Resuelto":
+                        st.success(f"✅ El evento ID #{id_evt_sel} ya se encuentra resuelto/cerrado.")
+                    else:
+                        with st.form(f"form_cerrar_evt_{id_evt_sel}", clear_on_submit=True):
+                            st.caption(f"**Equipo:** {evt_registro['equipo']}")
+                            st.caption(f"**Causa inicial:** {evt_registro['tipo_evento']}")
+                            
+                            nuevo_estatus = st.selectbox("Nuevo Estatus", ["Resuelto", "En Revisión"])
+                            fecha_cierre = st.date_input("Fecha de Reconexión/Cierre", value=datetime.today().date())
+                            
+                            accion_reconexion = st.text_area(
+                                "Detalle de la Reconexión / Solución",
+                                placeholder="Ej. Se corrigió la falla de aislamiento, se realizaron pruebas de rotación y megger. Motor reconectado y operando en norma."
+                            )
+
+                            btn_reconectar = st.form_submit_button("💾 Guardar Reconexión y Cerrar")
+
+                            if btn_reconectar:
+                                if not accion_reconexion.strip():
+                                    st.warning("⚠️ Debes ingresar el detalle de la acción realizada.")
+                                else:
+                                    # Concatenar la acción previa con la nueva bitácora de reconexión
+                                    accion_previa = str(evt_registro['accion_tomada'] or "").strip()
+                                    registro_cierre = f"[{fecha_cierre.strftime('%d/%m/%Y')} - {st.session_state.usuario_actual}]: {accion_reconexion.strip()}"
+                                    accion_final = f"{accion_previa}\n\n{registro_cierre}".strip()
+
+                                    q_close_evt = text("""
+                                    UPDATE registro_eventos SET
+                                        estatus = :est,
+                                        accion_tomada = :acc
+                                    WHERE id = :id;
+                                    """)
+
+                                    try:
+                                        with engine.begin() as conn:
+                                            conn.execute(q_close_evt, {
+                                                "est": nuevo_estatus,
+                                                "acc": accion_final,
+                                                "id": int(id_evt_sel)
+                                            })
+                                        st.success(f"✅ Evento #{id_evt_sel} del equipo {evt_registro['equipo']} marcado como '{nuevo_estatus}'.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error al actualizar el evento: {e}")
+
+            # --- OPCIÓN 2: MODIFICAR EVENTO EDITABLE COMPLETO ---
             with col_edit_evt:
-                with st.expander("✏️ Modificar Evento Seleccionado", expanded=True):
+                with st.expander("✏️ Modificar Evento Seleccionado"):
                     with st.form(f"form_edit_evt_{id_evt_sel}"):
                         fh_val = evt_registro['fecha_hora']
                         if isinstance(fh_val, str):
@@ -942,7 +1001,7 @@ elif opcion == "Registro de Eventos":
                         edit_sev_ev = st.select_slider("Severidad", options=sev_lista, value=sev_lista[idx_sev])
 
                         edit_desc_ev = st.text_area("Descripción", value=str(evt_registro['descripcion'] or ""))
-                        edit_acc_ev = st.text_input("Acción Tomada", value=str(evt_registro['accion_tomada'] or ""))
+                        edit_acc_ev = st.text_area("Acción Tomada", value=str(evt_registro['accion_tomada'] or ""))
 
                         estatus_lista = ["Abierto", "En Revisión", "Resuelto"]
                         idx_est = estatus_lista.index(evt_registro['estatus']) if evt_registro['estatus'] in estatus_lista else 0
@@ -984,9 +1043,10 @@ elif opcion == "Registro de Eventos":
                             except Exception as e:
                                 st.error(f"❌ Error al actualizar el evento: {e}")
 
+            # --- OPCIÓN 3: ELIMINAR EVENTO ---
             with col_del_evt:
-                with st.expander("🗑️ Eliminar Evento Seleccionado", expanded=True):
-                    st.warning(f"⚠️ ¿Estás seguro de que deseas borrar el registro de evento **ID #{id_evt_sel}**?")
+                with st.expander("🗑️ Eliminar Evento Seleccionado"):
+                    st.warning(f"⚠️ ¿Deseas borrar permanentemente el registro **ID #{id_evt_sel}**?")
                     st.write(f"**Equipo:** {evt_registro['equipo']}")
                     st.write(f"**Fecha:** {evt_registro['fecha_hora']}")
                     st.write(f"**Detalle:** {evt_registro['tipo_evento']}")
