@@ -465,7 +465,11 @@ if opcion == "Dashboard & KPIs":
 elif opcion == "Catálogo de Equipos":
     st.title("🏷️ Catálogo de Placas de Datos y Ubicaciones")
 
-    tab1, tab2 = st.tabs(["📋 Lista de Equipos Registrados", "➕ Registrar Placa de Datos"])
+    tab1, tab2, tab3 = st.tabs([
+        "📋 Lista de Equipos Registrados", 
+        "➕ Registrar Placa de Datos",
+        "🛠️ Modificar / Eliminar Equipo"
+    ])
 
     with tab1:
         df_eq = obtener_equipos()
@@ -516,6 +520,100 @@ elif opcion == "Catálogo de Equipos":
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar (probablemente el identificador ya existe): {e}")
+
+    with tab3:
+        df_eq = obtener_equipos()
+        if df_eq.empty:
+            st.info("No hay equipos en el catálogo para editar o eliminar.")
+        else:
+            st.subheader("🛠️ Gestor de Placas Registradas")
+            lista_codigos = df_eq['codigo_equipo'].tolist()
+            eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos)
+
+            eq_registro = df_eq[df_eq['codigo_equipo'] == eq_sel_cod].iloc[0]
+
+            col_edit_eq, col_del_eq = st.columns(2)
+
+            # --- EDITAR EQUIPO ---
+            with col_edit_eq:
+                with st.expander("✏️ Editar Placa de Datos", expanded=True):
+                    with st.form(f"form_edit_eq_{eq_registro['id']}"):
+                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro['ubicacion'] or ""))
+                        edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro['marca_modelo'] or ""))
+                        edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro['no_serie'] or ""))
+                        
+                        estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
+                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro['estatus'] in estatus_op else 0
+                        edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
+
+                        c_eq1, c_eq2 = st.columns(2)
+                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro['potencia_hp'] or 0.0), step=5.0)
+                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['voltaje_nom'] or 0.0), step=10.0)
+                        
+                        c_eq3, c_eq4 = st.columns(2)
+                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro['corriente_nom'] or 0.0), step=1.0)
+                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro['rpm'] or 0), step=50)
+
+                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro['factor_servicio'] or 1.0), step=0.05)
+                        edit_obs = st.text_area("Observaciones", value=str(eq_registro['observaciones'] or ""))
+
+                        btn_update_eq = st.form_submit_button("💾 Guardar Cambios")
+
+                        if btn_update_eq:
+                            q_upd_eq = text("""
+                            UPDATE catalogo_equipos SET
+                                ubicacion = :ub,
+                                marca_modelo = :mm,
+                                no_serie = :ns,
+                                potencia_hp = :php,
+                                voltaje_nom = :vnom,
+                                corriente_nom = :inom,
+                                rpm = :rpm,
+                                factor_servicio = :fs,
+                                estatus = :est,
+                                observaciones = :obs
+                            WHERE id = :id;
+                            """)
+
+                            params_upd_eq = {
+                                "ub": edit_ubic,
+                                "mm": edit_marca_m,
+                                "ns": edit_no_serie,
+                                "php": edit_pot_hp,
+                                "vnom": edit_v_nom,
+                                "inom": edit_i_nom,
+                                "rpm": edit_rpm,
+                                "fs": edit_fs,
+                                "est": edit_estatus,
+                                "obs": edit_obs,
+                                "id": int(eq_registro['id'])
+                            }
+
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(q_upd_eq, params_upd_eq)
+                                st.success(f"✅ Equipo **{eq_sel_cod}** actualizado correctamente.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al actualizar el equipo: {e}")
+
+            # --- ELIMINAR EQUIPO ---
+            with col_del_eq:
+                with st.expander("🗑️ Eliminar Equipo del Catálogo", expanded=True):
+                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo de equipos?")
+                    st.write(f"**Ubicación:** {eq_registro['ubicacion']}")
+                    st.write(f"**Marca/Modelo:** {eq_registro['marca_modelo']}")
+                    st.write(f"**Corriente Nom (FLA):** {eq_registro['corriente_nom']} A")
+
+                    if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
+                        q_del_eq = text("DELETE FROM catalogo_equipos WHERE id = :id;")
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(q_del_eq, {"id": int(eq_registro['id'])})
+                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado con éxito.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al eliminar el equipo: {e}")
 
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
