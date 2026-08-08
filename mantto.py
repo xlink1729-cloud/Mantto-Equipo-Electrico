@@ -237,7 +237,7 @@ opciones_menu = [
     "🔥 Inspección Termográfica (FLIR)",
     "Registro de Eventos", 
     "Historial de Mediciones",
-    "Pruebas de Aislamiento"
+    "Pruebas de Aislamiento",
     "Mi Perfil"
 ]
 
