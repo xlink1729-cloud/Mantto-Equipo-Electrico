@@ -236,7 +236,8 @@ opciones_menu = [
     "Nueva Inspección Eléctrica", 
     "🔥 Inspección Termográfica (FLIR)",
     "Registro de Eventos", 
-    "Historial de Mediciones", 
+    "Historial de Mediciones",
+    "Pruebas de Aislamiento"
     "Mi Perfil"
 ]
 
@@ -296,6 +297,16 @@ def obtener_equipos():
 def obtener_termografias():
     query = "SELECT * FROM inspecciones_termograficas ORDER BY fecha_inspeccion DESC, id DESC;"
     return pd.read_sql_query(query, engine)
+
+def obtener_pruebas_aislamiento():
+    try:
+        query = text("SELECT * FROM pruebas_aislamiento ORDER BY fecha_hora DESC;")
+        with engine.connect() as conn:
+            df = pd.read_sql_query(query, conn)
+        return df
+    except Exception as e:
+        st.error(f"Error al cargar historial de aislamiento: {e}")
+        return pd.DataFrame()
 
 def formatear_df_porcentajes(df):
     df_fmt = df.copy()
@@ -1283,6 +1294,136 @@ elif opcion == "Historial de Mediciones":
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al eliminar: {e}")
+
+# ---------------------------------------------------------
+# PRUEBAS DE AISLAMIENTO (IEEE Std 43)
+# ---------------------------------------------------------
+elif opcion == "Pruebas de Aislamiento":
+    st.title("⚡ Pruebas de Resistencia de Aislamiento (IEEE Std 43)")
+
+    df_equipos_cat = obtener_equipos()
+
+    tab_nueva_p, tab_hist_p = st.tabs([
+        "🧪 Registrar Nueva Prueba", 
+        "📋 Historial y Tendencias"
+    ])
+
+    # --- PESTAÑA 1: NUEVA PRUEBA ---
+    with tab_nueva_p:
+        st.subheader("Evaluación Térmica y Dieléctrica de Estator")
+        
+        with st.form("form_prueba_aislamiento", clear_on_submit=True):
+            col_a1, col_a2 = st.columns(2)
+
+            with col_a1:
+                f_prueba = st.date_input("Fecha de la Prueba", value=datetime.today().date())
+                h_prueba = st.time_input("Hora de la Prueba", value=datetime.now().time())
+
+                if not df_equipos_cat.empty:
+                    equipo_p = st.selectbox("Seleccionar Equipo / Motor *", df_equipos_cat["codigo_equipo"].tolist())
+                else:
+                    equipo_p = st.text_input("Identificador del Equipo *", value="Bomba-01")
+
+                v_aplicado = st.selectbox("Tensión de Prueba Aplicada en CD (Megger) *", [500, 1000, 2500, 5000], index=0, help="500V o 1000V recomendados para motores <1000V (IEEE 43)")
+                temp_c = st.number_input("Temperatura del Devanado / Carcasa (°C) *", value=25.0, step=1.0, help="Dato clave para calcular la corrección R40")
+
+            with col_a2:
+                st.markdown("**Lecturas de Resistencia ($M\Omega$)**")
+                r_30s = st.number_input("Resistencia a los 30 segundos ($M\Omega$)", value=0.0, step=1.0, help="Opcional: Requerido para índice DAR")
+                r_1min = st.number_input("Resistencia a 1 minuto ($M\Omega$) *", value=15.0, step=1.0, help="Obligatorio para la norma IEEE 43")
+                r_10min = st.number_input("Resistencia a los 10 minutos ($M\Omega$)", value=0.0, step=1.0, help="Opcional: Requerido para índice PI")
+
+                obs_prueba = st.text_area("Observaciones / Estado del Motor", placeholder="Ej. Motor en stand-by con calefacción encendida. Sin humedad aparente en caja de bornes.")
+
+            btn_calcular_guardar = st.form_submit_button("📊 Evaluar según IEEE 43 y Guardar")
+
+            if btn_calcular_guardar:
+                if r_1min <= 0:
+                    st.error("⚠️ La lectura de Resistencia a 1 minuto debe ser mayor a 0 MΩ.")
+                else:
+                    # 1. Cálculo de Corrección por Temperatura R40 (IEEE Std 43)
+                    # Fórmula: R40 = RT * 0.5 ^ ((40 - T) / 10)
+                    r_40c = r_1min * (0.5 ** ((40.0 - temp_c) / 10.0))
+
+                    # 2. Cálculo de DAR (R60s / R30s)
+                    dar_val = round(r_1min / r_30s, 2) if r_30s > 0 else None
+
+                    # 3. Cálculo de PI (R10min / R1min)
+                    pi_val = round(r_10min / r_1min, 2) if r_10min > 0 else None
+
+                    # 4. Criterio de Diagnóstico según IEEE Std 43 (Mínimo 5 MΩ para motores modernos)
+                    if r_40c < 1.0:
+                        diag_est = "CRÍTICO (Peligro de Falla a Tierra)"
+                    elif 1.0 <= r_40c < 5.0:
+                        diag_est = "ALERTA (Presencia de Humedad / Suciedad)"
+                    elif 5.0 <= r_40c < 100.0:
+                        diag_est = "ACEPTABLE (Apto para Operación)"
+                    else:
+                        diag_est = "EXCELENTE (Devanado Seco y Limpio)"
+
+                    # 5. Insertar en BD
+                    fh_completa = datetime.combine(f_prueba, h_prueba)
+                    q_ins_p = text("""
+                    INSERT INTO pruebas_aislamiento 
+                    (fecha_hora, equipo, voltaje_prueba_v, temp_devanado_c, r_30s_mohm, r_1min_mohm, r_10min_mohm, r_40c_mohm, dar, pi, diagnostico, observaciones, realizado_por)
+                    VALUES (:fh, :eq, :v, :temp, :r30, :r1m, :r10m, :r40, :dar, :pi, :diag, :obs, :rep);
+                    """)
+
+                    params_p = {
+                        "fh": fh_completa, "eq": str(equipo_p).strip(), "v": v_aplicado,
+                        "temp": temp_c, "r30": r_30s if r_30s > 0 else None, "r1m": r_1min,
+                        "r10m": r_10min if r_10min > 0 else None, "r40": round(r_40c, 2),
+                        "dar": dar_val, "pi": pi_val, "diag": diag_est,
+                        "obs": obs_prueba, "rep": st.session_state.usuario_actual
+                    }
+
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(q_ins_p, params_p)
+                        
+                        st.success("✅ Prueba registrada exitosamente.")
+                        
+                        # Resumen de resultados en pantalla
+                        st.markdown("### 📋 Resultados del Diagnóstico IEEE 43")
+                        mc1, mc2, mc3, mc4 = st.columns(4)
+                        mc1.metric("Lectura Directa (1 min)", f"{r_1min} MΩ")
+                        mc2.metric("Corregida a 40 °C (R40)", f"{round(r_40c, 2)} MΩ")
+                        mc3.metric("Índice DAR", f"{dar_val if dar_val else 'N/A'}")
+                        mc4.metric("Índice PI", f"{pi_val if pi_val else 'N/A'}")
+
+                        if r_40c < 5.0:
+                            st.error(f" **Diagnóstico:** {diag_est}")
+                        else:
+                            st.success(f" **Diagnóstico:** {diag_est}")
+
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar en base de datos: {e}")
+
+    # --- PESTAÑA 2: HISTORIAL Y TENDENCIAS ---
+    with tab_hist_p:
+        df_p = obtener_pruebas_aislamiento()
+
+        if df_p.empty:
+            st.info("Aún no se han registrado pruebas de aislamiento.")
+        else:
+            st.subheader("📋 Registro Histórico de Pruebas")
+
+            # Filtro por equipo
+            eq_unicos = df_p["equipo"].unique().tolist()
+            f_eq_p = st.multiselect("Filtrar por Equipo:", eq_unicos, default=eq_unicos)
+
+            df_p_filt = df_p[df_p["equipo"].isin(f_eq_p)]
+
+            st.dataframe(df_p_filt, use_container_width=True)
+
+            # Exportar a CSV
+            csv_p = df_p_filt.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Exportar Pruebas de Aislamiento a CSV",
+                data=csv_p,
+                file_name=f"pruebas_aislamiento_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
 
 # ---------------------------------------------------------
 # 7. MI PERFIL
