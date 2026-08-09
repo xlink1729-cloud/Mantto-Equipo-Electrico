@@ -499,6 +499,7 @@ elif opcion == "Catálogo de Equipos":
                 ubic = st.text_input("Ubicación en Planta / Área *", placeholder="Ej. Pozo Profundo No. 3, Estación B")
                 marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. US Motors / Siemens 1LA")
                 no_serie = st.text_input("Número de Serie", placeholder="Ej. SN-8894021")
+                frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC, 180M")
                 estatus_e = st.selectbox("Estatus Operativo", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
 
             with col_e2:
@@ -516,16 +517,16 @@ elif opcion == "Catálogo de Equipos":
                     st.error("El Identificador del Equipo es obligatorio.")
                 else:
                     q_ins_eq = text("""
-                    INSERT INTO catalogo_equipos (codigo_equipo, ubicacion, marca_modelo, no_serie, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, estatus, observaciones)
-                    VALUES (:cod, :ub, :mm, :ns, :php, :vnom, :inom, :rpm, :fs, :est, :obs);
+                    INSERT INTO catalogo_equipos (codigo_equipo, ubicacion, marca_modelo, no_serie, frame, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, estatus, observaciones)
+                    VALUES (:cod, :ub, :mm, :ns, :fr, :php, :vnom, :inom, :rpm, :fs, :est, :obs);
                     """)
                     
                     try:
                         with engine.begin() as conn:
                             conn.execute(q_ins_eq, {
                                 "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
-                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, "rpm": rpm_e,
-                                "fs": fs_e, "est": estatus_e, "obs": obs_eq
+                                "fr": frame_m, "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
+                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e, "obs": obs_eq
                             })
                         st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente en el catálogo.")
                         st.rerun()
@@ -553,6 +554,10 @@ elif opcion == "Catálogo de Equipos":
                         edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro['marca_modelo'] or ""))
                         edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro['no_serie'] or ""))
                         
+                        # Manejo seguro si la columna frame es nula o no existía previamente
+                        val_frame = str(eq_registro['frame']) if 'frame' in eq_registro and pd.notna(eq_registro['frame']) else ""
+                        edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
+                        
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
                         idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro['estatus'] in estatus_op else 0
                         edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
@@ -576,6 +581,7 @@ elif opcion == "Catálogo de Equipos":
                                 ubicacion = :ub,
                                 marca_modelo = :mm,
                                 no_serie = :ns,
+                                frame = :fr,
                                 potencia_hp = :php,
                                 voltaje_nom = :vnom,
                                 corriente_nom = :inom,
@@ -590,6 +596,7 @@ elif opcion == "Catálogo de Equipos":
                                 "ub": edit_ubic,
                                 "mm": edit_marca_m,
                                 "ns": edit_no_serie,
+                                "fr": edit_frame,
                                 "php": edit_pot_hp,
                                 "vnom": edit_v_nom,
                                 "inom": edit_i_nom,
@@ -614,6 +621,7 @@ elif opcion == "Catálogo de Equipos":
                     st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo de equipos?")
                     st.write(f"**Ubicación:** {eq_registro['ubicacion']}")
                     st.write(f"**Marca/Modelo:** {eq_registro['marca_modelo']}")
+                    st.write(f"**Frame:** {eq_registro.get('frame', 'N/A')}")
                     st.write(f"**Corriente Nom (FLA):** {eq_registro['corriente_nom']} A")
 
                     if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
