@@ -178,16 +178,20 @@ if "sesion_valida" not in st.session_state:
 
 def login(usuario, password):
     """Valida credenciales contra la base de datos."""
-    query = text("SELECT username, password_hash, nombre, rol FROM usuarios WHERE username = :u;")
-    with engine.connect() as conn:
-        result = conn.execute(query, {"u": usuario}).fetchone()
+    try:
+        query = text("SELECT username, password_hash, nombre, rol FROM usuarios WHERE username = :u;")
+        with engine.connect() as conn:
+            result = conn.execute(query, {"u": usuario}).fetchone()
 
-        if result and check_password(password, result.password_hash):
-            st.session_state["sesion_valida"] = True
-            st.session_state["username_actual"] = result.username
-            st.session_state["usuario_actual"] = result.nombre
-            st.session_state["rol_actual"] = result.rol
-            return True
+            if result and check_password(password, result.password_hash):
+                st.session_state["sesion_valida"] = True
+                st.session_state["username_actual"] = result.username
+                st.session_state["usuario_actual"] = result.nombre
+                st.session_state["rol_actual"] = result.rol
+                return True
+            return False
+    except Exception as e:
+        st.error(f"Error al conectar con la base de datos: {e}")
         return False
 
 def logout():
@@ -198,26 +202,65 @@ def logout():
     st.rerun()
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN Y AUTENTICACIÓN
+# PANTALLA DE LOGIN DINÁMICA Y MODERNA
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
-    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-    with col_l2:
-        st.title("🔐 Acceso al Sistema")
-        st.subheader("Monitoreo Electromecánico")
-        
-        with st.form("form_login"):
-            usr_input = st.text_input("Usuario")
-            pass_input = st.text_input("Contraseña", type="password")
-            btn_login = st.form_submit_button("Ingresar")
+    # Estilos CSS ligeros para mejorar el encabezado
+    st.markdown("""
+        <style>
+        .login-title {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+        }
+        .login-sub {
+            text-align: center;
+            color: #6c757d;
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        </style>
+    """, unsafe_allow_javascript=True)
 
-            if btn_login:
-                if login(usr_input, pass_input):
-                    st.success("¡Bienvenido!")
-                    st.rerun()
-                else:
-                    st.error("❌ Usuario o contraseña incorrectos.")
+    # Estructura centrada de 3 columnas
+    col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
+
+    with col_l2:
+        st.markdown("<div class='login-title'>⚡ Monitoreo Electromecánico</div>", unsafe_allow_javascript=True)
+        st.markdown("<div class='login-sub'>Gestión de Equipos y Aislamiento</div>", unsafe_allow_javascript=True)
+
+        # Tarjeta contenedora con borde
+        with st.container(border=True):
+            st.subheader("🔑 Acceso al Sistema")
+
+            with st.form("form_login", clear_on_submit=False):
+                usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
+                pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
+                
+                btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
+
+                if btn_login:
+                    if not usr_input.strip() or not pass_input.strip():
+                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")
+                    elif login(usr_input.strip(), pass_input):
+                        st.success(f"¡Bienvenido, {st.session_state['usuario_actual']}!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos.")
+
+    # Detener la ejecución para no mostrar la barra lateral ni el menú a usuarios no autenticados
     st.stop()
+
+# ---------------------------------------------------------
+# BOTÓN Y PERFIL DE USUARIO EN LA BARRA LATERAL (SIDEBAR)
+# ---------------------------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.caption(f"👤 **Usuario:** {st.session_state['usuario_actual']}")
+st.sidebar.caption(f"🛡️ **Rol:** {st.session_state['rol_actual']}")
+
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+    logout()
 
 # ---------------------------------------------------------
 # BARRA LATERAL
