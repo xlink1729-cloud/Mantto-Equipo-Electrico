@@ -168,13 +168,18 @@ except Exception as e:
     st.error(f"Error inicializando la base de datos: {e}")
 
 # ---------------------------------------------------------
-# CONTROL DE SESIÓN
+# CONTROL DE SESIÓN CON LÍMITE DE INTENTOS
 # ---------------------------------------------------------
+MAX_INTENTOS = 3
+
 if "sesion_valida" not in st.session_state:
     st.session_state["sesion_valida"] = False
     st.session_state["usuario_actual"] = None
     st.session_state["username_actual"] = None
     st.session_state["rol_actual"] = None
+
+if "intentos_fallidos" not in st.session_state:
+    st.session_state["intentos_fallidos"] = 0
 
 def login(usuario, password):
     """Valida credenciales contra la base de datos."""
@@ -188,41 +193,19 @@ def login(usuario, password):
                 st.session_state["username_actual"] = result.username
                 st.session_state["usuario_actual"] = result.nombre
                 st.session_state["rol_actual"] = result.rol
+                st.session_state["intentos_fallidos"] = 0  # Reiniciar contador si es correcto
                 return True
-            return False
+            else:
+                st.session_state["intentos_fallidos"] += 1
+                return False
     except Exception as e:
         st.error(f"Error al conectar con la base de datos: {e}")
         return False
 
-def logout():
-    """Limpia la sesión y reinicia la aplicación."""
-    st.session_state["sesion_valida"] = False
-    st.session_state["usuario_actual"] = None
-    st.session_state["username_actual"] = None
-    st.session_state["rol_actual"] = None
-    st.rerun()
-
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN DINÁMICA Y MODERNA
+# PANTALLA DE LOGIN
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
-    st.markdown("""
-        <style>
-        .login-title {
-            text-align: center;
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.2rem;
-        }
-        .login-sub {
-            text-align: center;
-            color: #6c757d;
-            font-size: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
 
     with col_l2:
@@ -232,22 +215,29 @@ if not st.session_state["sesion_valida"]:
         with st.container(border=True):
             st.subheader("🔑 Acceso al Sistema")
 
-            with st.form("form_login", clear_on_submit=False):
-                usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
-                pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
-                
-                btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
+            # Verificar si superó el número máximo de intentos
+            if st.session_state["intentos_fallidos"] >= MAX_INTENTOS:
+                st.error("🚫 **Acceso bloqueado:** Has superado el número máximo de 3 intentos fallidos. Contacta al administrador del sistema o recarga la página.")
+            else:
+                with st.form("form_login", clear_on_submit=False):
+                    usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
+                    pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
+                    
+                    btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
 
-                if btn_login:
-                    if not usr_input.strip() or not pass_input.strip():
-                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")
-                    elif login(usr_input.strip(), pass_input):
-                        st.success(f"¡Bienvenido, {st.session_state['usuario_actual']}!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Usuario o contraseña incorrectos.")
+                    if btn_login:
+                        if not usr_input.strip() or not pass_input.strip():
+                            st.warning("⚠️ Por favor ingresa usuario y contraseña.")
+                        elif login(usr_input.strip(), pass_input):
+                            st.success(f"¡Bienvenido, {st.session_state['usuario_actual']}!")
+                            st.rerun()
+                        else:
+                            intentos_restantes = MAX_INTENTOS - st.session_state["intentos_fallidos"]
+                            if intentos_restantes > 0:
+                                st.error(f"❌ Credenciales incorrectas. Te quedan **{intentos_restantes}** intento(s).")
+                            else:
+                                st.rerun()
 
-    # Detener la ejecución para usuarios no autenticados
     st.stop()
 
 # ---------------------------------------------------------
