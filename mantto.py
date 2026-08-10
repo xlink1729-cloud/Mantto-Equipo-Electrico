@@ -194,13 +194,13 @@ def login(usuario, password):
         st.error(f"Error al conectar con la base de datos: {e}")
         return False
 
-#def logout():
-    
-    #st.session_state["sesion_valida"] = False
-    #st.session_state["usuario_actual"] = None
-    #st.session_state["username_actual"] = None
-    #st.session_state["rol_actual"] = None
-    #st.rerun()
+def logout():
+    """Limpia la sesión y reinicia la aplicación."""
+    st.session_state["sesion_valida"] = False
+    st.session_state["usuario_actual"] = None
+    st.session_state["username_actual"] = None
+    st.session_state["rol_actual"] = None
+    st.rerun()
 
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN DINÁMICA Y MODERNA
@@ -222,7 +222,7 @@ if not st.session_state["sesion_valida"]:
             margin-bottom: 1.5rem;
         }
         </style>
-    """, unsafe_allow_html=True)  # <-- AQUÍ SE CORRIGIÓ EL ARGUMENTO
+    """, unsafe_allow_html=True)
 
     # Estructura centrada de 3 columnas
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
@@ -254,13 +254,13 @@ if not st.session_state["sesion_valida"]:
     st.stop()
     
 # ---------------------------------------------------------
-# BOTÓN Y PERFIL DE USUARIO EN LA BARRA LATERAL (SIDEBAR)
+# PERFIL DE USUARIO Y BOTÓN ÚNICO EN LA BARRA LATERAL
 # ---------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.caption(f"👤 **Usuario:** {st.session_state['usuario_actual']}")
 st.sidebar.caption(f"🛡️ **Rol:** {st.session_state['rol_actual']}")
 
-if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout_sidebar"):
     logout()
 
 # ---------------------------------------------------------
