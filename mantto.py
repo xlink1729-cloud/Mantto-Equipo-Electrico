@@ -221,14 +221,14 @@ if not st.session_state["sesion_valida"]:
             margin-bottom: 1.5rem;
         }
         </style>
-    """, unsafe_allow_javascript=True)
+    """, unsafe_allow_html=True)  # <-- AQUÍ SE CORRIGIÓ EL ARGUMENTO
 
     # Estructura centrada de 3 columnas
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
 
     with col_l2:
-        st.markdown("<div class='login-title'>⚡ Monitoreo Electromecánico</div>", unsafe_allow_javascript=True)
-        st.markdown("<div class='login-sub'>Gestión de Equipos y Aislamiento</div>", unsafe_allow_javascript=True)
+        st.markdown("<div class='login-title'>⚡ Monitoreo Electromecánico</div>", unsafe_allow_html=True)
+        st.markdown("<div class='login-sub'>Gestión de Equipos y Aislamiento</div>", unsafe_allow_html=True)
 
         # Tarjeta contenedora con borde
         with st.container(border=True):
@@ -249,9 +249,9 @@ if not st.session_state["sesion_valida"]:
                     else:
                         st.error("❌ Usuario o contraseña incorrectos.")
 
-    # Detener la ejecución para no mostrar la barra lateral ni el menú a usuarios no autenticados
+    # Detener la ejecución para usuarios no autenticados
     st.stop()
-
+    
 # ---------------------------------------------------------
 # BOTÓN Y PERFIL DE USUARIO EN LA BARRA LATERAL (SIDEBAR)
 # ---------------------------------------------------------
