@@ -83,7 +83,9 @@ def inicializar_bd():
             username VARCHAR(50) UNIQUE NOT NULL,
             password_hash VARCHAR(255) NOT NULL,
             nombre VARCHAR(100),
-            rol VARCHAR(20) DEFAULT 'tecnico'
+            rol VARCHAR(20) DEFAULT 'tecnico',
+            intentos_fallidos INT DEFAULT 0,
+            bloqueado_hasta TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL
         );
         """,
         """
@@ -106,6 +108,7 @@ def inicializar_bd():
             ubicacion VARCHAR(150),
             marca_modelo VARCHAR(100),
             no_serie VARCHAR(100),
+            frame VARCHAR(50),
             potencia_hp FLOAT,
             voltaje_nom FLOAT,
             corriente_nom FLOAT,
@@ -141,7 +144,10 @@ def inicializar_bd():
     columnas_extra = [
         "ALTER TABLE inspecciones_bombas ADD COLUMN IF NOT EXISTS v_n_tierra FLOAT DEFAULT 0.0;",
         "ALTER TABLE inspecciones_bombas ADD COLUMN IF NOT EXISTS factor_carga FLOAT DEFAULT 0.0;",
-        "ALTER TABLE usuarios ALTER COLUMN password_hash TYPE VARCHAR(255);"
+        "ALTER TABLE usuarios ALTER COLUMN password_hash TYPE VARCHAR(255);",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS intentos_fallidos INT DEFAULT 0;",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS bloqueado_hasta TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS frame VARCHAR(50);"
     ]
     for col_query in columnas_extra:
         try:
@@ -168,8 +174,22 @@ except Exception as e:
     st.error(f"Error inicializando la base de datos: {e}")
 
 # ---------------------------------------------------------
-# CONTROL DE SESIÓN CON LÍMITE DE INTENTOS
+# CONTROL Y FUNCIONES DE SESIÓN
 # ---------------------------------------------------------
+if "sesion_valida" not in st.session_state:
+    st.session_state["sesion_valida"] = False
+    st.session_state["usuario_actual"] = None
+    st.session_state["username_actual"] = None
+    st.session_state["rol_actual"] = None
+
+def logout():
+    """Limpia las variables de sesión y reinicia la app."""
+    st.session_state["sesion_valida"] = False
+    st.session_state["usuario_actual"] = None
+    st.session_state["username_actual"] = None
+    st.session_state["rol_actual"] = None
+    st.rerun()
+
 MAX_INTENTOS = 3
 TIEMPO_BLOQUEO_MINUTOS = 15
 
@@ -190,6 +210,7 @@ def login(usuario, password):
 
             # Desempaquetar campos
             username, pass_hash, nombre, rol, intentos, bloqueado_hasta = result
+            intentos = intentos or 0
 
             # 2. Verificar si el usuario se encuentra actualmente bloqueado
             if bloqueado_hasta and datetime.now() < bloqueado_hasta:
@@ -247,34 +268,31 @@ if not st.session_state["sesion_valida"]:
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
 
     with col_l2:
-        st.markdown("<div class='login-title'>⚡ Monitoreo Electromecánico</div>", unsafe_allow_html=True)
-        st.markdown("<div class='login-sub'>Gestión de Equipos y Aislamiento</div>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>⚡ Monitoreo Electromecánico</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray;'>Gestión de Equipos y Aislamiento</p>", unsafe_allow_html=True)
 
         with st.container(border=True):
             st.subheader("🔑 Acceso al Sistema")
 
-            # Verificar si superó el número máximo de intentos
-            if st.session_state["intentos_fallidos"] >= MAX_INTENTOS:
-                st.error("🚫 **Acceso bloqueado:** Has superado el número máximo de 3 intentos fallidos. Contacta al administrador del sistema o recarga la página.")
-            else:
-                with st.form("form_login", clear_on_submit=False):
-                    usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
-                    pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
-                    
-                    btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
+            with st.form("form_login", clear_on_submit=False):
+                usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
+                pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
+                
+                btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
 
-                    if btn_login:
+                if btn_login:
+                    if not usr_input.strip() or not pass_input.strip():
+                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")
+                    else:
+                        exito, mensaje = login(usr_input.strip(), pass_input)
 
-                        if not usr_input.strip() or not pass_input.strip():
-                            st.warning("⚠️ Por favor ingresa usuario y contraseña.")
+                        if exito:
+                            st.success(mensaje)
+                            st.rerun()
                         else:
-                            exito, mensaje = login(usr_input.strip(), pass_input)
+                            st.error(mensaje)
 
-                            if exito:
-                                st.success(mensaje)
-                                st.rerun()
-                            else:
-                                st.error(mensaje)
+    st.stop()
 
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
@@ -339,8 +357,6 @@ def obtener_datos():
         fla_ref = df['corriente_nominal_cat'].apply(lambda x: x if pd.notnull(x) and x > 0 else 65.0)
         df['factor_carga'] = ((df['i_promedio'] / fla_ref) * 100).round(2)
         df['desbalance_i'] = df.apply(lambda r: calcular_desbalance(r['i_a'], r['i_b'], r['i_c']), axis=1)
-        
-        # Corrección: cálculo directo de potencia usando el voltaje medio de línea
         df['potencia_kw'] = df.apply(lambda r: calcular_potencia_kw(r['i_promedio'], r['v_promedio']), axis=1)
         
     return df
@@ -605,7 +621,6 @@ elif opcion == "Catálogo de Equipos":
 
             col_edit_eq, col_del_eq = st.columns(2)
 
-            # --- EDITAR EQUIPO ---
             with col_edit_eq:
                 with st.expander("✏️ Editar Placa de Datos", expanded=True):
                     with st.form(f"form_edit_eq_{eq_registro['id']}"):
@@ -613,8 +628,7 @@ elif opcion == "Catálogo de Equipos":
                         edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro['marca_modelo'] or ""))
                         edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro['no_serie'] or ""))
                         
-                        # Manejo seguro si la columna frame es nula o no existía previamente
-                        val_frame = str(eq_registro['frame']) if 'frame' in eq_registro and pd.notna(eq_registro['frame']) else ""
+                        val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
                         edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
@@ -674,7 +688,6 @@ elif opcion == "Catálogo de Equipos":
                             except Exception as e:
                                 st.error(f"❌ Error al actualizar el equipo: {e}")
 
-            # --- ELIMINAR EQUIPO ---
             with col_del_eq:
                 with st.expander("🗑️ Eliminar Equipo del Catálogo", expanded=True):
                     st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo de equipos?")
@@ -823,7 +836,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
 
             st.markdown("---")
             
-            # --- SECCIÓN 1: MOTOR ---
             st.subheader("⚙️ 1. Motor (Mecánico / Térmico)")
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
@@ -835,7 +847,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
 
             st.markdown("---")
 
-            # --- SECCIÓN 2: ITM ---
             st.subheader("⚡ 2. ITM (Interruptor Termomagnético)")
             col_i1, col_i2, col_i3 = st.columns(3)
             with col_i1:
@@ -847,7 +858,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
 
             st.markdown("---")
 
-            # --- SECCIÓN 3: FUSIBLES ---
             st.subheader("🔌 3. Fusibles")
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
@@ -859,7 +869,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
 
             st.markdown("---")
 
-            # --- SECCIÓN 4: ARRANCADOR / CONTACTOR ---
             st.subheader("🎛️ 4. Arrancador / Contactor")
             col_a1, col_a2, col_a3 = st.columns(3)
             with col_a1:
@@ -878,7 +887,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
             btn_guardar_todo = st.form_submit_button("💾 Guardar Inspección Completa (4 Componentes)")
 
             if btn_guardar_todo:
-                # Mapeo de los 4 componentes para insertar en lote
                 componentes_datos = [
                     {
                         "punto": "Motor (Mecánico/Térmico)",
@@ -909,7 +917,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                 q_ins_termo = text("""
                 INSERT INTO inspecciones_termograficas 
                 (equipo_id, fecha_inspeccion, punto_medicion, hot_spot, spot_1, spot_2, spot_3, desbalance_max, delta_hotspot, estado, observaciones, tecnico)
-                VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs);
+                VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs, :tec);
                 """)
 
                 try:
@@ -920,7 +928,6 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                             desbal = max(t1, t2, t3) - min(t1, t2, t3)
                             delta = hot_spot - ((t1 + t2 + t3) / 3.0)
 
-                            # Evaluación de severidad por tipo de componente
                             if item["es_motor"]:
                                 if hot_spot >= 90.0 or desbal >= 15.0:
                                     estado = "CRITICO"
@@ -948,6 +955,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                                 "delta": float(delta),
                                 "est": estado,
                                 "obs": item["obs"],
+                                "tec": str(st.session_state.usuario_actual)
                             }
 
                             conn.execute(q_ins_termo, params)
@@ -1097,7 +1105,6 @@ elif opcion == "Registro de Eventos":
 
             col_cerrar_evt, col_edit_evt, col_del_evt = st.columns(3)
 
-            # 1. RECONECTAR / CERRAR EVENTO
             with col_cerrar_evt:
                 with st.expander("⚡ Reconectar Motor / Cerrar Evento", expanded=True):
                     if evt_registro['estatus'] == "Resuelto":
@@ -1144,7 +1151,6 @@ elif opcion == "Registro de Eventos":
                                     except Exception as e:
                                         st.error(f"❌ Error al actualizar el evento: {e}")
 
-            # 2. MODIFICAR COMPLETO
             with col_edit_evt:
                 with st.expander("✏️ Modificar Evento Seleccionado"):
                     with st.form(f"form_edit_evt_{id_evt_sel}"):
@@ -1214,7 +1220,6 @@ elif opcion == "Registro de Eventos":
                             except Exception as e:
                                 st.error(f"❌ Error al actualizar el evento: {e}")
 
-            # 3. ELIMINAR EVENTO
             with col_del_evt:
                 with st.expander("🗑️ Eliminar Evento Seleccionado"):
                     st.warning(f"⚠️ ¿Deseas borrar permanentemente el registro **ID #{id_evt_sel}**?")
@@ -1375,7 +1380,6 @@ elif opcion == "Pruebas de Aislamiento":
         "📋 Historial y Tendencias"
     ])
 
-    # --- PESTAÑA 1: NUEVA PRUEBA ---
     with tab_nueva_p:
         st.subheader("Evaluación Térmica y Dieléctrica de Estator")
         
@@ -1408,17 +1412,10 @@ elif opcion == "Pruebas de Aislamiento":
                 if r_1min <= 0:
                     st.error("⚠️ La lectura de Resistencia a 1 minuto debe ser mayor a 0 MΩ.")
                 else:
-                    # 1. Cálculo de Corrección por Temperatura R40 (IEEE Std 43)
-                    # Fórmula: R40 = RT * 0.5 ^ ((40 - T) / 10)
                     r_40c = r_1min * (0.5 ** ((40.0 - temp_c) / 10.0))
-
-                    # 2. Cálculo de DAR (R60s / R30s)
                     dar_val = round(r_1min / r_30s, 2) if r_30s > 0 else None
-
-                    # 3. Cálculo de PI (R10min / R1min)
                     pi_val = round(r_10min / r_1min, 2) if r_10min > 0 else None
 
-                    # 4. Criterio de Diagnóstico según IEEE Std 43 (Mínimo 5 MΩ para motores modernos)
                     if r_40c < 1.0:
                         diag_est = "CRÍTICO (Peligro de Falla a Tierra)"
                     elif 1.0 <= r_40c < 5.0:
@@ -1428,7 +1425,6 @@ elif opcion == "Pruebas de Aislamiento":
                     else:
                         diag_est = "EXCELENTE (Devanado Seco y Limpio)"
 
-                    # 5. Insertar en BD
                     fh_completa = datetime.combine(f_prueba, h_prueba)
                     q_ins_p = text("""
                     INSERT INTO pruebas_aislamiento 
@@ -1450,7 +1446,6 @@ elif opcion == "Pruebas de Aislamiento":
                         
                         st.success("✅ Prueba registrada exitosamente.")
                         
-                        # Resumen de resultados en pantalla
                         st.markdown("### 📋 Resultados del Diagnóstico IEEE 43")
                         mc1, mc2, mc3, mc4 = st.columns(4)
                         mc1.metric("Lectura Directa (1 min)", f"{r_1min} MΩ")
@@ -1466,7 +1461,6 @@ elif opcion == "Pruebas de Aislamiento":
                     except Exception as e:
                         st.error(f"❌ Error al guardar en base de datos: {e}")
 
-    # --- PESTAÑA 2: HISTORIAL Y TENDENCIAS ---
     with tab_hist_p:
         df_p = obtener_pruebas_aislamiento()
 
@@ -1475,7 +1469,6 @@ elif opcion == "Pruebas de Aislamiento":
         else:
             st.subheader("📋 Registro Histórico de Pruebas")
 
-            # Filtro por equipo
             eq_unicos = df_p["equipo"].unique().tolist()
             f_eq_p = st.multiselect("Filtrar por Equipo:", eq_unicos, default=eq_unicos)
 
@@ -1483,7 +1476,6 @@ elif opcion == "Pruebas de Aislamiento":
 
             st.dataframe(df_p_filt, use_container_width=True)
 
-            # Exportar a CSV
             csv_p = df_p_filt.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Exportar Pruebas de Aislamiento a CSV",
