@@ -264,16 +264,10 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
     logout()
 
 # ---------------------------------------------------------
-# BARRA LATERAL
+# BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
 # ---------------------------------------------------------
-st.sidebar.markdown(f"### 👤 {st.session_state.usuario_actual}")
-st.sidebar.caption(f"Rol: **{st.session_state.rol_actual.upper()}**")
 
-if st.sidebar.button("🔴 Cerrar Sesión"):
-    logout()
-
-st.sidebar.markdown("---")
-
+# 1. Menú de navegación principal
 opciones_menu = [
     "Dashboard & KPIs", 
     "Catálogo de Equipos",
@@ -289,6 +283,14 @@ if st.session_state.rol_actual == "admin":
     opciones_menu.append("Gestión de Usuarios")
 
 opcion = st.sidebar.radio("Menú Principal", opciones_menu)
+
+# 2. Perfil de Usuario y Único Botón de Salida (Al final del Sidebar)
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"👤 **{st.session_state.usuario_actual}**")
+st.sidebar.caption(f"Rol: **{st.session_state.rol_actual.upper()}**")
+
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout_unico"):
+    logout()
 
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
