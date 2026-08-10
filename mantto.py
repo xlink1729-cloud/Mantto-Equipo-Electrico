@@ -197,8 +197,8 @@ def login(usuario, password):
 def logout():
     st.session_state["sesion_valida"] = False
     st.session_state["usuario_actual"] = None
-    st.session_state["username_actual"] = None
-    st.session_state["rol_actual"] = None
+    #st.session_state["username_actual"] = None
+    #st.session_state["rol_actual"] = None
     st.rerun()
 
 # ---------------------------------------------------------
