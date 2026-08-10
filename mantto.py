@@ -171,36 +171,74 @@ except Exception as e:
 # CONTROL DE SESIÓN CON LÍMITE DE INTENTOS
 # ---------------------------------------------------------
 MAX_INTENTOS = 3
-
-if "sesion_valida" not in st.session_state:
-    st.session_state["sesion_valida"] = False
-    st.session_state["usuario_actual"] = None
-    st.session_state["username_actual"] = None
-    st.session_state["rol_actual"] = None
-
-if "intentos_fallidos" not in st.session_state:
-    st.session_state["intentos_fallidos"] = 0
+TIEMPO_BLOQUEO_MINUTOS = 15
 
 def login(usuario, password):
-    """Valida credenciales contra la base de datos."""
+    """Valida credenciales y aplica bloqueo persistente contra fuerza bruta."""
     try:
-        query = text("SELECT username, password_hash, nombre, rol FROM usuarios WHERE username = :u;")
         with engine.connect() as conn:
-            result = conn.execute(query, {"u": usuario}).fetchone()
+            # 1. Consultar estado del usuario
+            q_user = text("""
+                SELECT username, password_hash, nombre, rol, intentos_fallidos, bloqueado_hasta 
+                FROM usuarios 
+                WHERE username = :u;
+            """)
+            result = conn.execute(q_user, {"u": usuario}).fetchone()
 
-            if result and check_password(password, result.password_hash):
+            if not result:
+                return False, "❌ Usuario o contraseña incorrectos."
+
+            # Desempaquetar campos
+            username, pass_hash, nombre, rol, intentos, bloqueado_hasta = result
+
+            # 2. Verificar si el usuario se encuentra actualmente bloqueado
+            if bloqueado_hasta and datetime.now() < bloqueado_hasta:
+                tiempo_restante = int((bloqueado_hasta - datetime.now()).total_seconds() / 60) + 1
+                return False, f"🚫 Usuario bloqueado por seguridad. Intenta nuevamente en {tiempo_restante} minuto(s)."
+
+            # 3. Validar la contraseña
+            if check_password(password, pass_hash):
+                # Restablecer contador de intentos e historial de bloqueo tras éxito
+                q_reset = text("""
+                    UPDATE usuarios 
+                    SET intentos_fallidos = 0, bloqueado_hasta = NULL 
+                    WHERE username = :u;
+                """)
+                conn.execute(q_reset, {"u": usuario})
+                conn.commit()
+
+                # Guardar sesión activa
                 st.session_state["sesion_valida"] = True
-                st.session_state["username_actual"] = result.username
-                st.session_state["usuario_actual"] = result.nombre
-                st.session_state["rol_actual"] = result.rol
-                st.session_state["intentos_fallidos"] = 0  # Reiniciar contador si es correcto
-                return True
+                st.session_state["username_actual"] = username
+                st.session_state["usuario_actual"] = nombre
+                st.session_state["rol_actual"] = rol
+                return True, "¡Bienvenido!"
+
             else:
-                st.session_state["intentos_fallidos"] += 1
-                return False
+                # Incrementar el contador de fallos
+                nuevos_intentos = intentos + 1
+                
+                if nuevos_intentos >= MAX_INTENTOS:
+                    # Aplicar bloqueo temporal de 15 minutos
+                    bloqueo = datetime.now() + timedelta(minutes=TIEMPO_BLOQUEO_MINUTOS)
+                    q_block = text("""
+                        UPDATE usuarios 
+                        SET intentos_fallidos = :i, bloqueado_hasta = :b 
+                        WHERE username = :u;
+                    """)
+                    conn.execute(q_block, {"i": nuevos_intentos, "b": bloqueo, "u": usuario})
+                    conn.commit()
+                    return False, f"🚫 Superaste el límite de {MAX_INTENTOS} intentos. Cuenta bloqueada por {TIEMPO_BLOQUEO_MINUTOS} minutos."
+                else:
+                    # Actualizar únicamente el contador de intentos
+                    q_update = text("UPDATE usuarios SET intentos_fallidos = :i WHERE username = :u;")
+                    conn.execute(q_update, {"i": nuevos_intentos, "u": usuario})
+                    conn.commit()
+                    intentos_restantes = MAX_INTENTOS - nuevos_intentos
+                    return False, f"❌ Contraseña incorrecta. Te quedan {intentos_restantes} intento(s)."
+
     except Exception as e:
-        st.error(f"Error al conectar con la base de datos: {e}")
-        return False
+        return False, f"Error al conectar con la base de datos: {e}"
 
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN
@@ -226,19 +264,17 @@ if not st.session_state["sesion_valida"]:
                     btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
 
                     if btn_login:
+
                         if not usr_input.strip() or not pass_input.strip():
                             st.warning("⚠️ Por favor ingresa usuario y contraseña.")
-                        elif login(usr_input.strip(), pass_input):
-                            st.success(f"¡Bienvenido, {st.session_state['usuario_actual']}!")
-                            st.rerun()
                         else:
-                            intentos_restantes = MAX_INTENTOS - st.session_state["intentos_fallidos"]
-                            if intentos_restantes > 0:
-                                st.error(f"❌ Credenciales incorrectas. Te quedan **{intentos_restantes}** intento(s).")
-                            else:
-                                st.rerun()
+                            exito, mensaje = login(usr_input.strip(), pass_input)
 
-    st.stop()
+                            if exito:
+                                st.success(mensaje)
+                                st.rerun()
+                            else:
+                                st.error(mensaje)
 
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
