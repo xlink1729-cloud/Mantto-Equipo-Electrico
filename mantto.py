@@ -194,12 +194,13 @@ def login(usuario, password):
         st.error(f"Error al conectar con la base de datos: {e}")
         return False
 
-def logout():
-    st.session_state["sesion_valida"] = False
-    st.session_state["usuario_actual"] = None
+#def logout():
+    
+    #st.session_state["sesion_valida"] = False
+    #st.session_state["usuario_actual"] = None
     #st.session_state["username_actual"] = None
     #st.session_state["rol_actual"] = None
-    st.rerun()
+    #st.rerun()
 
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN DINÁMICA Y MODERNA
