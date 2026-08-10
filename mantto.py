@@ -206,7 +206,6 @@ def logout():
 # PANTALLA DE LOGIN DINÁMICA Y MODERNA
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
-    # Estilos CSS ligeros para mejorar el encabezado
     st.markdown("""
         <style>
         .login-title {
@@ -224,14 +223,12 @@ if not st.session_state["sesion_valida"]:
         </style>
     """, unsafe_allow_html=True)
 
-    # Estructura centrada de 3 columnas
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
 
     with col_l2:
         st.markdown("<div class='login-title'>⚡ Monitoreo Electromecánico</div>", unsafe_allow_html=True)
         st.markdown("<div class='login-sub'>Gestión de Equipos y Aislamiento</div>", unsafe_allow_html=True)
 
-        # Tarjeta contenedora con borde
         with st.container(border=True):
             st.subheader("🔑 Acceso al Sistema")
 
@@ -252,16 +249,6 @@ if not st.session_state["sesion_valida"]:
 
     # Detener la ejecución para usuarios no autenticados
     st.stop()
-    
-# ---------------------------------------------------------
-# PERFIL DE USUARIO Y BOTÓN ÚNICO EN LA BARRA LATERAL
-# ---------------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.caption(f"👤 **Usuario:** {st.session_state['usuario_actual']}")
-st.sidebar.caption(f"🛡️ **Rol:** {st.session_state['rol_actual']}")
-
-if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout_sidebar"):
-    logout()
 
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
@@ -287,7 +274,7 @@ opcion = st.sidebar.radio("Menú Principal", opciones_menu)
 # 2. Perfil de Usuario y Único Botón de Salida (Al final del Sidebar)
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"👤 **{st.session_state.usuario_actual}**")
-st.sidebar.caption(f"Rol: **{st.session_state.rol_actual.upper()}**")
+st.sidebar.caption(f"Rol: **{str(st.session_state.rol_actual).upper()}**")
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout_unico"):
     logout()
