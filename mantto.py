@@ -1587,77 +1587,121 @@ elif opcion == "Mi Perfil":
                     st.error("❌ La contraseña actual es incorrecta.")
 
 # ---------------------------------------------------------
-# 8. GESTIÓN DE USUARIOS (SOLO ADMIN)
+# VISTA: GESTIÓN DE USUARIOS (SOLO ADMINS)
 # ---------------------------------------------------------
-elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin":
-    st.title("⚙️ Administración de Usuarios")
+if opcion == "Gestión de Usuarios":
+    if not es_admin():
+        st.error("🚫 No tienes permisos para acceder a este módulo.")
+        st.stop()
 
-    tab_crear, tab_modificar, tab_lista = st.tabs(["➕ Crear Usuario", "✏️ Modificar Usuario", "👥 Lista de Usuarios"])
+    st.title("👥 Gestión de Usuarios y Permisos")
+    st.markdown("---")
 
+    tab_crear, tab_listar = st.tabs(["➕ Crear Nuevo Usuario", "📋 Usuarios Registrados y Permisos"])
+
+    # 1. CREAR USUARIO
     with tab_crear:
-        st.subheader("Registrar Nuevo Usuario")
-        with st.form("form_nuevo_usuario", clear_on_submit=True):
-            nuevo_user = st.text_input("Nombre de usuario (ej. jsmith)")
-            nuevo_nombre = st.text_input("Nombre Completo (ej. Juan Smith)")
-            nuevo_pass = st.text_input("Contraseña", type="password")
-            nuevo_rol = st.selectbox("Rol de Acceso", ["tecnico", "admin"])
-            
-            btn_crear = st.form_submit_button("Crear Usuario")
+        st.subheader("Registrar nuevo usuario")
+        with st.form("form_crear_usuario", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                nuevo_username = st.text_input("Nombre de Usuario (Login)", placeholder="ej. jperez").strip().lower()
+                nombre_completo = st.text_input("Nombre Completo", placeholder="ej. Juan Pérez")
+            with col2:
+                nuevo_pass = st.text_input("Contraseña Temporal", type="password")
+                rol_seleccionado = st.selectbox("Rol en el Sistema", ["tecnico", "operador", "admin"])
+
+            btn_crear = st.form_submit_button("Guardar Usuario")
 
             if btn_crear:
-                if not nuevo_user or not nuevo_pass or not nuevo_nombre:
-                    st.warning("Todos los campos son obligatorios.")
+                if not nuevo_username or not nuevo_pass or not nombre_completo:
+                    st.warning("⚠️ Todos los campos son obligatorios.")
+                elif len(nuevo_pass) < 8:
+                    st.warning("⚠️ La contraseña debe tener al menos 8 caracteres.")
                 else:
                     try:
-                        q_insert = text("""
-                        INSERT INTO usuarios (username, password_hash, nombre, rol)
-                        VALUES (:u, :p, :n, :r);
-                        """)
+                        pass_hash = hash_password(nuevo_pass)
                         with engine.begin() as conn:
-                            conn.execute(q_insert, {
-                                "u": nuevo_user,
-                                "p": hash_password(nuevo_pass),
-                                "n": nuevo_nombre,
-                                "r": nuevo_rol
-                            })
-                        st.success(f"Usuario '{nuevo_user}' creado exitosamente.")
-                    except Exception:
-                        st.error("Error al crear usuario (quizá el nombre de usuario ya existe).")
+                            # Verificar disponibilidad de username
+                            user_exists = conn.execute(
+                                text("SELECT COUNT(*) FROM usuarios WHERE username = :u;"),
+                                {"u": nuevo_username}
+                            ).scalar()
 
-    with tab_modificar:
-        st.subheader("Modificar Datos de Usuario")
-        usuarios_df = pd.read_sql_query("SELECT username, nombre, rol FROM usuarios;", engine)
-        user_sel = st.selectbox("Selecciona el usuario a editar:", usuarios_df["username"].tolist())
-        
-        if user_sel:
-            datos_user = usuarios_df[usuarios_df["username"] == user_sel].iloc[0]
-            
-            with st.form("form_edit_user"):
-                mod_nombre = st.text_input("Nombre Completo", value=datos_user["nombre"])
-                mod_rol = st.selectbox("Rol", ["tecnico", "admin"], index=0 if datos_user["rol"] == "tecnico" else 1)
-                mod_pass = st.text_input("Nueva Contraseña (dejar en blanco si no deseas cambiarla)", type="password")
+                            if user_exists > 0:
+                                st.error(f"❌ El usuario '{nuevo_username}' ya existe.")
+                            else:
+                                conn.execute(
+                                    text("""
+                                        INSERT INTO usuarios (username, password_hash, nombre, rol)
+                                        VALUES (:u, :p, :n, :r);
+                                    """),
+                                    {"u": nuevo_username, "p": pass_hash, "n": nombre_completo, "r": rol_seleccionado}
+                                )
+                                st.success(f"✅ Usuario **{nuevo_username}** creado exitosamente.")
+                    except Exception as err:
+                        st.error(f"Error al guardar en la base de datos: {err}")
 
-                btn_mod = st.form_submit_button("Guardar Cambios")
+    # 2. LISTAR Y ADMINISTRAR USUARIOS
+    with tab_listar:
+        st.subheader("Administración de Cuentas")
+        try:
+            with engine.connect() as conn:
+                df_usuarios = pd.read_sql(
+                    text("SELECT id, username, nombre, rol, intentos_fallidos, bloqueado_hasta FROM usuarios ORDER BY id ASC;"),
+                    conn
+                )
+
+            if not df_usuarios.empty:
+                # Mostrar tabla con estado de bloqueo
+                df_usuarios["Estado"] = df_usuarios["bloqueado_hasta"].apply(
+                    lambda x: "🚫 Bloqueado" if pd.notnull(x) and datetime.now() < x else "🟢 Activo"
+                )
                 
-                if btn_mod:
-                    if mod_pass.strip():
-                        q_update = text("UPDATE usuarios SET nombre = :n, rol = :r, password_hash = :p WHERE username = :u;")
-                        params = {"n": mod_nombre, "r": mod_rol, "p": hash_password(mod_pass), "u": user_sel}
-                    else:
-                        q_update = text("UPDATE usuarios SET nombre = :n, rol = :r WHERE username = :u;")
-                        params = {"n": mod_nombre, "r": mod_rol, "u": user_sel}
-                    
-                    with engine.begin() as conn:
-                        conn.execute(q_update, params)
-                    
-                    if user_sel == st.session_state.username_actual:
-                        st.session_state.usuario_actual = mod_nombre
-                        st.session_state.rol_actual = mod_rol
-                        
-                    st.success(f"✅ Usuario '{user_sel}' actualizado con éxito.")
-                    st.rerun()
+                st.dataframe(
+                    df_usuarios[["id", "username", "nombre", "rol", "Estado", "intentos_fallidos"]],
+                    use_container_width=True
+                )
 
-    with tab_lista:
-        st.subheader("👥 Usuarios Registrados")
-        usuarios_df = pd.read_sql_query("SELECT id, username, nombre, rol FROM usuarios;", engine)
-        st.dataframe(usuarios_df, use_container_width=True) 
+                st.markdown("---")
+                col_acc1, col_acc2 = st.columns(2)
+
+                # Accion: Desbloquear o Restablecer Pass
+                with col_acc1:
+                    st.markdown("##### 🔓 Desbloquear / Restablecer Contraseña")
+                    user_select = st.selectbox("Seleccionar Usuario", df_usuarios["username"].tolist(), key="sb_user_reset")
+                    new_pass_admin = st.text_input("Nueva Contraseña", type="password", key="pass_reset_admin")
+                    
+                    if st.button("Actualizar Contraseña y Desbloquear"):
+                        if not new_pass_admin or len(new_pass_admin) < 8:
+                            st.warning("⚠️ Ingresa una contraseña válida de al menos 8 caracteres.")
+                        else:
+                            with engine.begin() as conn:
+                                pass_h = hash_password(new_pass_admin)
+                                conn.execute(
+                                    text("""
+                                        UPDATE usuarios 
+                                        SET password_hash = :p, intentos_fallidos = 0, bloqueado_hasta = NULL 
+                                        WHERE username = :u;
+                                    """),
+                                    {"p": pass_h, "u": user_select}
+                                )
+                                st.success(f"✅ Contraseña restablecida y usuario **{user_select}** desbloqueado.")
+                                st.rerun()
+
+                # Accion: Eliminar Usuario
+                with col_acc2:
+                    st.markdown("##### 🗑️ Eliminar Usuario")
+                    user_delete = st.selectbox("Usuario a Eliminar", df_usuarios["username"].tolist(), key="sb_user_del")
+                    
+                    if st.button("⚠️ Eliminar Usuario", type="primary"):
+                        if user_delete == st.session_state.get("username_actual"):
+                            st.error("❌ No puedes eliminar tu propia cuenta en sesión.")
+                        else:
+                            with engine.begin() as conn:
+                                conn.execute(text("DELETE FROM usuarios WHERE username = :u;"), {"u": user_delete})
+                                st.success(f"Usuario **{user_delete}** eliminado.")
+                                st.rerun()
+
+        except Exception as e:
+            st.error(f"Error al cargar la lista de usuarios: {e}")
