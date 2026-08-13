@@ -712,39 +712,15 @@ if opcion == "Dashboard & KPIs":
                         </div>
                     """, unsafe_allow_html=True)
 
-    # TAB 2: RADAR CHART PARA DESBALANCE DE FASES
-    with tab_radar:
-        st.subheader("Equilibrio de Fases (Última Medición)")
-        if df_elec.empty:
-            st.info("Se requieren inspecciones eléctricas registradas para generar el gráfico de radar.")
-        else:
-            eq_radar_select = st.selectbox("Seleccionar Equipo para Análisis Trifásico", df_elec['equipo'].unique())
-            df_eq_latest = df_elec[df_elec['equipo'] == eq_radar_select].iloc[0]
-
-            # Crear datos para el radar chart
-            r_corrientes = [df_eq_latest['i_a'], df_eq_latest['i_b'], df_eq_latest['i_c']]
-            theta_fases = ['Fase A (A)', 'Fase B (A)', 'Fase C (A)']
-
-            fig_radar = px.line_polar(
-                r=r_corrientes + [r_corrientes[0]], # Cerrar el polígono
-                theta=theta_fases + [theta_fases[0]],
-                line_close=True,
-                title=f"Simetría de Corriente - {eq_radar_select}",
-                markers=True
-            )
-            fig_radar.update_traces(fill='toself', line_color='#2563eb')
-            fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, showticklabels=True)))
-            st.plotly_chart(fig_radar, use_container_width=True)
-
-    # TAB 3: GRÁFICAS CORREGIDAS (SÓLO ÚLTIMA LECTURA POR EQUIPO)
+    # --- SECCIÓN DE GRÁFICAS SEPARADAS Y DEDUPLICADAS ---
     with tab_scatter:
-        st.subheader("📈 Análisis de Parámetros Operativos (Última Inspección)")
+        st.subheader("📈 Análisis de Parámetros Operativos")
         
-        if df_elec.empty:
-            st.info("No hay registros de inspección disponibles en el rango seleccionado.")
+        if df_insp.empty:
+            st.info("No hay registros de inspección disponibles.")
         else:
-            # 💡 SOLUCIÓN CLAVE: Tomar solo la última lectura por equipo para evitar sumar desbalances históricos
-            df_reciente = df_elec.sort_values('fecha', ascending=False).groupby('equipo').first().reset_index()
+            # 💡 1. DEDUPLICACIÓN: Tomar sólo la última lectura por equipo para evitar barras apiladas
+            df_graficas = df_insp.sort_values('fecha', ascending=False).groupby('equipo').first().reset_index()
 
             col_g1, col_g2 = st.columns(2)
 
@@ -753,7 +729,7 @@ if opcion == "Dashboard & KPIs":
                 st.markdown("##### ⚡ Factor de Carga (%) por Equipo")
                 
                 fig_fc = px.bar(
-                    df_reciente,
+                    df_graficas,
                     x='equipo',
                     y='factor_carga',
                     color='factor_carga',
@@ -774,7 +750,7 @@ if opcion == "Dashboard & KPIs":
                 st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
                 
                 fig_desb = px.bar(
-                    df_reciente,
+                    df_graficas,
                     x='equipo',
                     y='desbalance_i',
                     color='desbalance_i',
