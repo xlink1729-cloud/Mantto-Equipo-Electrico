@@ -728,7 +728,7 @@ elif opcion == "Catálogo de Equipos":
             with col_edit_eq:
                 with st.expander("✏️ Editar Placa de Datos", expanded=True):
                     with st.form(f"form_edit_eq_{eq_registro['id']}"):
-                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro['Ubicacion'] or ""))
+                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro['ubicacion'] or ""))
                         edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro['Marca_modelo'] or ""))
                         edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro['No_serie'] or ""))
                         
