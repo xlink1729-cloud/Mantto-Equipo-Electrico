@@ -375,7 +375,7 @@ if not st.session_state["sesion_valida"]:
         with st.container(border=True):
             # Encabezado con Marca / Título
             st.markdown("<div class='app-title'>🌊 HYDRO-MOTOR</div>", unsafe_allow_html=True)
-            st.markdown("<div class='app-subtitle'>Mantenimiento Predictivo & Diagnóstico</div>", unsafe_allow_html=True)
+            st.markdown("<div class='app-subtitle'>Mantenimiento Preventivo & Diagnóstico</div>", unsafe_allow_html=True)
             
             st.markdown("<div class='login-badge'>— Iniciar Sesión —</div>", unsafe_allow_html=True)
 
@@ -400,7 +400,7 @@ if not st.session_state["sesion_valida"]:
             st.markdown("<div class='footer-tag'>v2.0 • Neon PostgreSQL Active 🟢</div>", unsafe_allow_html=True)
 
     st.stop()
-    
+
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL)
 # ---------------------------------------------------------
