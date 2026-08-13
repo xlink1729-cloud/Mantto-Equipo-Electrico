@@ -287,7 +287,7 @@ def login(usuario: str, password: str):
         return False, "⚠️ Error de conexión con el servicio de autenticación."
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN
+# PANTALLA DE LOGIN (MEJORADA)
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
     st.markdown("""
@@ -307,47 +307,84 @@ if not st.session_state["sesion_valida"]:
             -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
             border-radius: 24px !important;
             border: 1px solid rgba(255, 255, 255, 0.6) !important;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08), 
                         inset 0 1px 2px rgba(255, 255, 255, 0.8) !important;
-            padding: 30px !important;
+            padding: 35px 30px !important;
         }
         .stTextInput > div > div {
-            background-color: rgba(146, 182, 219, 0.4) !important;
-            border: 1px solid rgba(255, 255, 255, 0.5) !important;
+            background-color: rgba(255, 255, 255, 0.5) !important;
+            border: 1px solid rgba(200, 215, 230, 0.7) !important;
             border-radius: 12px !important;
-            color: #2c3e50 !important;
+            color: #1e293b !important;
         }
         .stButton > button {
-            background: linear-gradient(135deg, #7ba2c7 0%, #5a8ab8 100%) !important;
+            background: linear-gradient(135deg, #475569 0%, #1e293b 100%) !important;
             color: white !important;
             border: none !important;
-            border-radius: 20px !important;
-            padding: 10px 24px !important;
+            border-radius: 14px !important;
+            padding: 12px 24px !important;
             font-weight: 600 !important;
+            letter-spacing: 1px !important;
+            box-shadow: 0 4px 12px rgba(30, 41, 59, 0.2) !important;
+            transition: all 0.3s ease !important;
         }
-        .login-title {
+        .stButton > button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 15px rgba(30, 41, 59, 0.3) !important;
+        }
+        .app-title {
             text-align: center;
-            color: #334155;
-            font-weight: 700;
-            letter-spacing: 2px;
+            color: #1e293b;
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 2px;
+        }
+        .app-subtitle {
+            text-align: center;
+            color: #475569;
+            font-size: 0.85rem;
+            font-weight: 500;
             margin-bottom: 25px;
-            font-size: 1.6rem;
+            letter-spacing: 0.5px;
+        }
+        .login-badge {
+            text-align: center;
+            font-size: 0.75rem;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 15px;
+        }
+        .footer-tag {
+            text-align: center;
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-top: 15px;
         }
         </style>
     """, unsafe_allow_html=True)
 
-    col_l1, col_l2, col_l3 = st.columns([1, 1.3, 1])
+    # Espaciador superior para centrar verticalmente la tarjeta
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
 
     with col_l2:
         with st.container(border=True):
-            st.markdown("<div class='login-title'>LOGIN</div>", unsafe_allow_html=True)
+            # Encabezado con Marca / Título
+            st.markdown("<div class='app-title'>🌊 HYDRO-MOTOR</div>", unsafe_allow_html=True)
+            st.markdown("<div class='app-subtitle'>Mantenimiento Predictivo & Diagnóstico</div>", unsafe_allow_html=True)
+            
+            st.markdown("<div class='login-badge'>— Iniciar Sesión —</div>", unsafe_allow_html=True)
 
             with st.form("form_login", clear_on_submit=False):
-                usr_input = st.text_input("Usuario", placeholder="ej. operador1")
-                pass_input = st.text_input("Password", type="password", placeholder="••••••••")
+                usr_input = st.text_input("👤 Usuario", placeholder="Ej. operador1")
+                pass_input = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                btn_login = st.form_submit_button("SIGN IN", use_container_width=True)
+                btn_login = st.form_submit_button("INGRESAR AL SISTEMA", use_container_width=True)
 
                 if btn_login:
                     if not usr_input.strip() or not pass_input.strip():
@@ -359,8 +396,11 @@ if not st.session_state["sesion_valida"]:
                             st.rerun()
                         else:
                             st.error(mensaje)
-    st.stop()
 
+            st.markdown("<div class='footer-tag'>v2.0 • Neon PostgreSQL Active 🟢</div>", unsafe_allow_html=True)
+
+    st.stop()
+    
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL)
 # ---------------------------------------------------------
