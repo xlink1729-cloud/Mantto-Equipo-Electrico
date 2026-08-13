@@ -264,7 +264,7 @@ def login(usuario, password):
 # ---------------------------------------------------------
 # PANTALLA DE LOGIN (ESTILO GLASSMORPHISM)
 # ---------------------------------------------------------
-if not st.session_state["sesion_valida"]:[cite: 1]
+if not st.session_state["sesion_valida"]:
     # Inyección de CSS para fondo pastel 3D, tarjeta de cristal e inputs estilizados
     st.markdown("""
         <style>
