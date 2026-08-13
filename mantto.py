@@ -213,6 +213,10 @@ def logout():
     st.session_state["sesion_valida"] = False
     st.rerun()
 
+def es_admin() -> bool:
+    """Verifica de forma segura si el usuario actual tiene rol de administrador."""
+    return st.session_state.get("sesion_valida", False) and st.session_state.get("rol_actual") == "admin"
+
 MAX_INTENTOS = 3
 TIEMPO_BLOQUEO_MINUTOS = 15
 
