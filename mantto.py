@@ -857,7 +857,7 @@ elif opcion == "Nueva Inspección Eléctrica":
 
         observaciones = st.text_area("Observaciones adicionales")
 
-        enviado = st.form_submit_button("Guardar Registro en Neon")
+        enviado = st.form_submit_button("Guardar Registro")
 
         if enviado:
             desb_v_ff = calcular_desbalance(v_ab, v_bc, v_ca)
