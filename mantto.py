@@ -736,27 +736,59 @@ if opcion == "Dashboard & KPIs":
             fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, showticklabels=True)))
             st.plotly_chart(fig_radar, use_container_width=True)
 
-    # TAB 3: SCATTER PLOT (CARGA VS DESBALANCE)
+    # TAB 3: GRÁFICAS SEPARADAS DE FACTOR DE CARGA Y DESBALANCE
     with tab_scatter:
-        st.subheader("Matriz: Factor de Carga (%) vs Desbalance de Corriente (%)")
+        st.subheader("📈 Análisis de Parámetros Operativos")
+        
         if df_elec.empty:
-            st.info("Sin registros de inspección disponibles.")
+            st.info("No hay registros de inspección disponibles en el rango seleccionado.")
         else:
-            fig_scatter = px.scatter(
-                df_elec,
-                x='factor_carga',
-                y='desbalance_i',
-                color='estado',
-                size='i_a',
-                hover_data=['equipo', 'fecha', 'tecnico'],
-                labels={'factor_carga': 'Factor de Carga (%)', 'desbalance_i': 'Desbalance de Corriente (%)'},
-                color_discrete_map={'Normal': '#22c55e', 'Alarma': '#eab308', 'Critico': '#ef4444'}
-            )
-            # Agregar línea límite NEMA/IEEE (5% Desbalance)
-            fig_scatter.add_hline(y=5.0, line_dash="dash", line_color="orange", annotation_text="Límite Recomendado IEEE (5%)")
-            fig_scatter.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Límite Crítico NEMA (10%)")
-            
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            col_g1, col_g2 = st.columns(2)
+
+            # --- GRÁFICA 1: FACTOR DE CARGA (%) ---
+            with col_g1:
+                st.markdown("##### ⚡ Factor de Carga (%) por Equipo")
+                
+                # Agrupar o graficar historial de factor de carga
+                fig_fc = px.bar(
+                    df_elec,
+                    x='equipo',
+                    y='factor_carga',
+                    color='factor_carga',
+                    color_continuous_scale='Blues',
+                    text_auto='.1f',
+                    labels={'factor_carga': 'Factor Carga (%)', 'equipo': 'Equipo'},
+                    title="Carga Operativa vs Capacidad Nom."
+                )
+                
+                # Líneas de referencia de sobredimensionamiento y sobrecarga
+                fig_fc.add_hline(y=100.0, line_dash="dash", line_color="red", annotation_text="100% Carga Nom.")
+                fig_fc.add_hline(y=50.0, line_dash="dot", line_color="orange", annotation_text="Sub-operación (<50%)")
+                
+                fig_fc.update_layout(showlegend=False, height=380)
+                st.plotly_chart(fig_fc, use_container_width=True)
+
+            # --- GRÁFICA 2: DESBALANCE DE CORRIENTE (%) ---
+            with col_g2:
+                st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
+                
+                fig_desb = px.bar(
+                    df_elec,
+                    x='equipo',
+                    y='desbalance_i',
+                    color='desbalance_i',
+                    color_continuous_scale='Reds',
+                    text_auto='.1f',
+                    labels={'desbalance_i': 'Desbalance (%)', 'equipo': 'Equipo'},
+                    title="Desbalance Eléctrico Trifásico"
+                )
+                
+                # Líneas normativas IEEE / NEMA
+                fig_desb.add_hline(y=5.0, line_dash="dash", line_color="orange", annotation_text="Alarma IEEE (5%)")
+                fig_desb.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Crítico NEMA (10%)")
+                
+                fig_desb.update_layout(showlegend=False, height=380)
+                st.plotly_chart(fig_desb, use_container_width=True)
 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
