@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 import bcrypt
 import logging
+import plotly.graph_objects as go
 
 # Configurar logging interno para no mostrar trazas de error al usuario
 logging.basicConfig(level=logging.INFO)
@@ -668,7 +669,7 @@ if opcion == "Dashboard & KPIs":
     # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
     tab_fleet, tab_radar, tab_scatter = st.tabs([
         "🚨 Vista de Flota (Semáforo)", 
-        "🕸️ Diagrama de Radar (Desbalance)", 
+        "📐 Diagrama Fasorial (Vectores)", 
         "📈 Factor de Carga vs. Salud"
     ])
 
@@ -712,7 +713,71 @@ if opcion == "Dashboard & KPIs":
                         </div>
                     """, unsafe_allow_html=True)
 
-    # --- SECCIÓN DE GRÁFICAS SEPARADAS Y DEDUPLICADAS ---
+    # TAB 2: DIAGRAMA FASORIAL / VECTORES (AQUÍ ESTABA LO QUE FALTABA)
+    with tab_radar:
+        st.subheader("📐 Diagrama Fasorial de Corrientes (Vectores Trifásicos)")
+        
+        df_insp = obtener_datos()
+        
+        if df_insp is None or df_insp.empty:
+            st.info("No hay registros de inspección disponibles.")
+        else:
+            # Filtrar última lectura por equipo
+            df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            
+            # Selector de equipo
+            equipos_disponibles = df_reciente['equipo'].unique().tolist()
+            equipo_sel = st.selectbox("Selecciona un equipo para evaluar sus vectores:", equipos_disponibles)
+            
+            # Extraer fila del equipo seleccionado
+            datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
+            
+            # Tomar corrientes por fase (buscando nombres estándar)
+            i_a = float(datos_eq.get('i_a', datos_eq.get('i_l1', 0)))
+            i_b = float(datos_eq.get('i_b', datos_eq.get('i_l2', 0)))
+            i_c = float(datos_eq.get('i_c', datos_eq.get('i_l3', 0)))
+            
+            # Ángulos estándar trifásicos (0°, 120°, 240°)
+            angulos = [0, 120, 240]
+            magnitudes = [i_a, i_b, i_c]
+            fases = ['Fase A (L1)', 'Fase B (L2)', 'Fase C (L3)']
+            colores = ['#e74c3c', '#f1c40f', '#3498db']  # Rojo, Amarillo, Azul
+            
+            fig_vector = go.Figure()
+            
+            for ang, mag, fase, color in zip(angulos, magnitudes, fases, colores):
+                fig_vector.add_trace(go.Scatterpolar(
+                    r=[0, mag],
+                    theta=[ang, ang],
+                    mode='lines+markers',
+                    name=f"{fase}: {mag:.1f} A",
+                    line=dict(color=color, width=4),
+                    marker=dict(size=8, symbol='arrow-bar-up')
+                ))
+            
+            fig_vector.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True, 
+                        range=[0, max(magnitudes) * 1.15 if max(magnitudes) > 0 else 10],
+                        title="Corriente (A)"
+                    ),
+                    angularaxis=dict(
+                        tickmode='array',
+                        tickvals=[0, 120, 240],
+                        ticktext=['0° (L1)', '120° (L2)', '240° (L3)'],
+                        direction="counterclockwise"
+                    )
+                ),
+                height=450,
+                title=f"Vectores de Corriente - {equipo_sel}",
+                showlegend=True,
+                legend=dict(orientation="h", y=-0.1)
+            )
+            
+            st.plotly_chart(fig_vector, use_container_width=True)
+
+    # TAB 3: SECCIÓN DE GRÁFICAS SEPARADAS Y DEDUPLICADAS
     with tab_scatter:
         st.subheader("📈 Análisis de Parámetros Operativos")
 
@@ -721,7 +786,7 @@ if opcion == "Dashboard & KPIs":
         if df_insp is None or df_insp.empty:
             st.info("No hay registros de inspección disponibles.")
         else:
-            # 💡 1. DEDUPLICACIÓN: Tomar sólo la última lectura por equipo para evitar barras apiladas
+            # 💡 DEDUPLICACIÓN: Tomar sólo la última lectura por equipo
             df_graficas = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
 
             col_g1, col_g2 = st.columns(2)
