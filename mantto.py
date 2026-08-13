@@ -511,143 +511,252 @@ def formatear_df_porcentajes(df):
     return df_fmt
 
 # ---------------------------------------------------------
-# 1. DASHBOARD DE OPERACIÓN & KPIS (NEMA / SMRP)
+# VISTA: DASHBOARD & KPIS (VISUALLY ENGAGING)
 # ---------------------------------------------------------
 if opcion == "Dashboard & KPIs":
     st.title("🌊 Monitoreo Eléctrico & KPIs de Confiabilidad")
     st.caption("Métricas evaluadas bajo estándares NEMA MG 1 e IEEE 141")
 
-    df_insp = obtener_datos()
-    df_eq = obtener_equipos()
-    df_evt = obtener_eventos()
+    # Estilos CSS específicos para la vista del Dashboard (Cards y Badges)
+    st.markdown("""
+        <style>
+        .kpi-card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .kpi-title {
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .kpi-value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin: 8px 0;
+        }
+        .kpi-status {
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 12px;
+            padding: 4px 12px;
+            display: inline-block;
+        }
+        .status-ok { background-color: #dcfce7; color: #166534; }
+        .status-warning { background-color: #fef9c3; color: #854d0e; }
+        .status-danger { background-color: #fee2e2; color: #991b1b; }
+        
+        .equipment-card {
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 14px;
+            padding: 15px;
+            border-left: 6px solid #cbd5e1;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        }
+        .eq-border-ok { border-left-color: #22c55e !important; }
+        .eq-border-warning { border-left-color: #eab308 !important; }
+        .eq-border-danger { border-left-color: #ef4444 !important; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    tot_equipos = len(df_eq)
-    eq_operativos = len(df_eq[df_eq["estatus"] == "Operativo"]) if not df_eq.empty else 0
-    disponibilidad = (eq_operativos / tot_equipos * 100) if tot_equipos > 0 else 100.0
+    # 1. FILTROS GLOBALES EN LA PARTE SUPERIOR
+    with st.container():
+        col_f1, col_f2, col_f3 = st.columns([1.5, 1.5, 1])
+        with col_f1:
+            fecha_inicio = st.date_input("Fecha Inicio", datetime.now() - timedelta(days=90))
+        with col_f2:
+            fecha_fin = st.date_input("Fecha Fin", datetime.now())
+        with col_f3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            btn_actualizar = st.button("🔄 Actualizar Datos", use_container_width=True)
 
-    evt_abiertos = len(df_evt[df_evt["estatus"] != "Resuelto"]) if not df_evt.empty else 0
+    # Cargar Datos desde Neon BD de forma segura
+    try:
+        with engine.connect() as conn:
+            df_elec = pd.read_sql(
+                text("SELECT * FROM inspecciones_bombas WHERE fecha BETWEEN :i AND :f ORDER BY fecha DESC;"),
+                conn, params={"i": fecha_inicio, "f": fecha_fin}
+            )
+            df_termo = pd.read_sql(
+                text("SELECT * FROM inspecciones_termograficas WHERE fecha_inspeccion BETWEEN :i AND :f;"),
+                conn, params={"i": fecha_inicio, "f": fecha_fin}
+            )
+            df_equipos = pd.read_sql(text("SELECT * FROM catalogo_equipos;"), conn)
+
+    except Exception as e:
+        st.error(f"Error al cargar datos del Dashboard: {e}")
+        df_elec, df_termo, df_equipos = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # 2. CÁLCULO DE KPIS GLOBALES
+    total_equipos = len(df_equipos) if not df_equipos.empty else 0
     
-    df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index() if not df_insp.empty else pd.DataFrame()
+    # Evaluar alertas
+    alertas_criticas = 0
+    alertas_advertencia = 0
+    
+    if not df_elec.empty:
+        alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
+        alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
+    
+    if not df_termo.empty:
+        alertas_criticas += len(df_termo[df_termo['estado'] == 'Critico'])
+        alertas_advertencia += len(df_termo[df_termo['estado'] == 'Alarma'])
 
-    potencia_total_kw = df_reciente['potencia_kw'].sum() if not df_reciente.empty and 'potencia_kw' in df_reciente.columns else 0.0
-    desbal_criticos = len(df_reciente[df_reciente['desbalance_i'] > 2.0]) if not df_reciente.empty and 'desbalance_i' in df_reciente.columns else 0
-    sobrecargados = len(df_reciente[df_reciente['factor_carga'] > 100.0]) if not df_reciente.empty and 'factor_carga' in df_reciente.columns else 0
-
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-    kpi1.metric("Disponibilidad Planta", f"{disponibilidad:.1f}%", delta="SMRP Standard")
-    kpi2.metric("Potencia Total Consumida", f"{potencia_total_kw:.1f} kW", help="Suma de potencia activa estimada de todos los motores")
-    kpi3.metric("Desbalance I > 2%", f"{desbal_criticos} Motores", delta_color="inverse", help="Límite máximo recomendado por NEMA MG-1")
-    kpi4.metric("Motores Sobrecargados", f"{sobrecargados}", delta_color="inverse", help="Unidades operando a > 100% de corriente nominal")
-    kpi5.metric("Incidentes Abiertos", f"{evt_abiertos}", delta_color="inverse")
-
-    st.markdown("---")
-
-    if df_insp.empty:
-        st.info("Aún no hay registros en la base de datos. Agrega lecturas en 'Nueva Inspección Eléctrica'.")
+    # Índice de Salud Estimado (0 - 100%)
+    if total_equipos > 0:
+        salud_global = max(0, min(100, int(100 - (alertas_criticas * 15 + alertas_advertencia * 5) / total_equipos)))
     else:
-        tab_graficas, tab_diagnostico, tab_tabla = st.tabs([
-            "📈 Tendencias y Salud Electromecánica", 
-            "⚡ Diagnóstico de Carga y Desbalance", 
-            "📋 Últimas Lecturas"
-        ])
+        salud_global = 100
 
-        with tab_graficas:
-            g_col1, g_col2 = st.columns(2)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-            with g_col1:
-                st.subheader("Evolución de Desbalance de Voltaje (V_FF)")
-                fig_v = px.line(
-                    df_insp, 
-                    x="fecha", 
-                    y="desbalance_v_ff", 
-                    color="equipo",
-                    markers=True,
-                    labels={"desbalance_v_ff": "Desbalance V_FF (%)", "fecha": "Fecha"},
-                    title="Límite Máximo NEMA MG 1: 2.0%"
-                )
-                fig_v.add_hline(y=2.0, line_dash="dash", line_color="red", annotation_text="Límite Crítico (2%)")
-                fig_v.add_hline(y=1.0, line_dash="dot", line_color="orange", annotation_text="Advertencia (1%)")
-                st.plotly_chart(fig_v, use_container_width=True)
+    # Render de Tarjetas KPI estilo Glassmorphism
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-            with g_col2:
-                st.subheader("Factor de Carga por Motor (%)")
+    with kpi1:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Salud Global del Parque</div>
+                <div class='kpi-value'>{salud_global}%</div>
+                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
+                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi2:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Total de Equipos</div>
+                <div class='kpi-value'>{total_equipos}</div>
+                <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi3:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Alertas Críticas</div>
+                <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
+                <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
+                    {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi4:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Advertencias</div>
+                <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
+                <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
+                    {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
+    tab_fleet, tab_radar, tab_scatter = st.tabs([
+        "🚨 Vista de Flota (Semáforo)", 
+        "🕸️ Diagrama de Radar (Desbalance)", 
+        "📈 Factor de Carga vs. Salud"
+    ])
+
+    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
+    with tab_fleet:
+        st.subheader("Estado de Salud por Equipo")
+        if df_equipos.empty:
+            st.info("No hay equipos registrados en el catálogo.")
+        else:
+            cols_grid = st.columns(3)
+            for idx, row in df_equipos.iterrows():
+                col_idx = idx % 3
+                eq_code = row['codigo_equipo']
                 
-                def asignar_condicion(fc):
-                    if fc > 115: return 'Sobrecarga (>115%)'
-                    elif fc > 100: return 'Factor Servicio (100-115%)'
-                    elif fc >= 75: return 'Óptimo (75-100%)'
-                    else: return 'Baja Carga (<75%)'
+                # Buscar última inspección eléctrica del equipo
+                st_color = "eq-border-ok"
+                badge_txt = "🟢 Normal"
+                
+                if not df_elec.empty:
+                    eq_data = df_elec[df_elec['equipo'] == eq_code]
+                    if not eq_data.empty:
+                        last_desb = eq_data.iloc[0]['desbalance_i'] or 0
+                        if last_desb > 10.0:
+                            st_color = "eq-border-danger"
+                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                        elif last_desb >= 5.0:
+                            st_color = "eq-border-warning"
+                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
-                df_reciente['Condicion_FC'] = df_reciente['factor_carga'].apply(asignar_condicion)
-                color_map = {
-                    'Sobrecarga (>115%)': '#EF553B',
-                    'Factor Servicio (100-115%)': '#FFA15A',
-                    'Óptimo (75-100%)': '#00CC96',
-                    'Baja Carga (<75%)': '#636EFA'
-                }
+                with cols_grid[col_idx]:
+                    st.markdown(f"""
+                        <div class='equipment-card {st_color}'>
+                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
+                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                            <div style='margin-top: 8px;'>
+                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
+                                    Ubicación: {row.get('ubicacion', 'N/A')}
+                                </span>
+                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
 
-                fig_fc = px.bar(
-                    df_reciente,
-                    x="equipo",
-                    y="factor_carga",
-                    color="Condicion_FC",
-                    color_discrete_map=color_map,
-                    labels={"factor_carga": "Factor de Carga (%)", "equipo": "Equipo"},
-                    text_auto='.1f'
-                )
-                fig_fc.add_hline(y=100.0, line_dash="dash", line_color="red", annotation_text="100% Corriente Nominal")
-                fig_fc.add_hline(y=75.0, line_dash="dot", line_color="green", annotation_text="75% Carga Mínima Óptima")
-                st.plotly_chart(fig_fc, use_container_width=True)
+    # TAB 2: RADAR CHART PARA DESBALANCE DE FASES
+    with tab_radar:
+        st.subheader("Equilibrio de Fases (Última Medición)")
+        if df_elec.empty:
+            st.info("Se requieren inspecciones eléctricas registradas para generar el gráfico de radar.")
+        else:
+            eq_radar_select = st.selectbox("Seleccionar Equipo para Análisis Trifásico", df_elec['equipo'].unique())
+            df_eq_latest = df_elec[df_elec['equipo'] == eq_radar_select].iloc[0]
 
-            st.markdown("---")
+            # Crear datos para el radar chart
+            r_corrientes = [df_eq_latest['i_a'], df_eq_latest['i_b'], df_eq_latest['i_c']]
+            theta_fases = ['Fase A (A)', 'Fase B (A)', 'Fase C (A)']
 
-            st.subheader("⚡ Evolución de Desbalance de Corriente por Fase (I)")
-            fig_i = px.line(
-                df_insp, 
-                x="fecha", 
-                y="desbalance_i", 
-                color="equipo",
-                markers=True,
-                labels={"desbalance_i": "Desbalance Corriente (%)", "fecha": "Fecha", "equipo": "Equipo"},
-                title="Límite Máximo Recomendado NEMA: 5.0% (Alarma Crítica: >10.0%)"
+            fig_radar = px.line_polar(
+                r=r_corrientes + [r_corrientes[0]], # Cerrar el polígono
+                theta=theta_fases + [theta_fases[0]],
+                line_close=True,
+                title=f"Simetría de Corriente - {eq_radar_select}",
+                markers=True
             )
-            fig_i.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Crítico / Paro (>10%)")
-            fig_i.add_hline(y=5.0, line_dash="dot", line_color="orange", annotation_text="Advertencia (5%)")
-            st.plotly_chart(fig_i, use_container_width=True)
+            fig_radar.update_traces(fill='toself', line_color='#2563eb')
+            fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, showticklabels=True)))
+            st.plotly_chart(fig_radar, use_container_width=True)
 
-        with tab_diagnostico:
-            st.subheader("🔍 Filtro de Diagnóstico Operativo Histórico")
+    # TAB 3: SCATTER PLOT (CARGA VS DESBALANCE)
+    with tab_scatter:
+        st.subheader("Matriz: Factor de Carga (%) vs Desbalance de Corriente (%)")
+        if df_elec.empty:
+            st.info("Sin registros de inspección disponibles.")
+        else:
+            fig_scatter = px.scatter(
+                df_elec,
+                x='factor_carga',
+                y='desbalance_i',
+                color='estado',
+                size='i_a',
+                hover_data=['equipo', 'fecha', 'tecnico'],
+                labels={'factor_carga': 'Factor de Carga (%)', 'desbalance_i': 'Desbalance de Corriente (%)'},
+                color_discrete_map={'Normal': '#22c55e', 'Alarma': '#eab308', 'Critico': '#ef4444'}
+            )
+            # Agregar línea límite NEMA/IEEE (5% Desbalance)
+            fig_scatter.add_hline(y=5.0, line_dash="dash", line_color="orange", annotation_text="Límite Recomendado IEEE (5%)")
+            fig_scatter.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Límite Crítico NEMA (10%)")
             
-            equipos_lista = ["Todos"] + list(df_insp['equipo'].unique())
-            equipo_sel = st.selectbox("Filtrar por Equipo:", equipos_lista)
-
-            filtro_estado = st.selectbox(
-                "Selecciona una condición específica para evaluar:",
-                ["Todos", "Sobrecargados (> 100%)", "Subutilizados / Sobredimensionados (< 50%)", "Desbalance Crítico de Corriente (> 2%)"]
-            )
-
-            df_diag = df_insp[['fecha', 'equipo', 'i_a', 'i_b', 'i_c', 'i_promedio', 'factor_carga', 'desbalance_i', 'potencia_kw']].copy()
-
-            if equipo_sel != "Todos":
-                df_diag = df_diag[df_diag['equipo'] == equipo_sel]
-
-            if filtro_estado == "Sobrecargados (> 100%)":
-                df_diag = df_diag[df_diag['factor_carga'] > 100.0]
-            elif filtro_estado == "Subutilizados / Sobredimensionados (< 50%)":
-                df_diag = df_diag[df_diag['factor_carga'] < 50.0]
-            elif filtro_estado == "Desbalance Crítico de Corriente (> 2%)":
-                df_diag = df_diag[df_diag['desbalance_i'] > 2.0]
-
-            df_diag.columns = [
-                'Fecha', 'Equipo', 'Fase A (A)', 'Fase B (A)', 'Fase C (A)', 
-                'I Promedio (A)', 'Factor Carga (%)', 'Desbalance I (%)', 'Potencia Est. (kW)'
-            ]
-
-            st.dataframe(df_diag.sort_values(by="Fecha", ascending=False), use_container_width=True)
-
-        with tab_tabla:
-            st.subheader("📋 Resumen General de Útimas Inspecciones")
-            st.dataframe(formatear_df_porcentajes(df_insp), use_container_width=True)
+            st.plotly_chart(fig_scatter, use_container_width=True)
 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
