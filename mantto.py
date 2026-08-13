@@ -6,6 +6,12 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 import bcrypt
 
+# Configurar logging interno para no mostrar trazas de error al usuario
+logging.basicConfig(level=logging.INFO)
+
+# Hash de relleno para prevenir Timing Attacks si el usuario no existe
+DUMMY_HASH = bcrypt.hashpw(b"dummy_password", bcrypt.gensalt(rounds=12)).decode('utf-8')
+
 st.set_page_config(
     page_title="Mantenimiento Bombas & Motores",
     page_icon="🌊",
@@ -44,12 +50,12 @@ engine = get_db_engine()
 # CONTROL DE SEGURIDAD & BCRYPT
 # ---------------------------------------------------------
 def hash_password(password: str) -> str:
-    """Genera un hash seguro usando Bcrypt con salting automático."""
+    """Genera un hash seguro usando Bcrypt con salting automático (rounds=12)."""
     salt = bcrypt.gensalt(rounds=12)
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 def check_password(password: str, hashed_password: str) -> bool:
-    """Compara una contraseña introducida con el hash de la BD."""
+    """Compara una contraseña introducida con el hash de la BD de forma segura."""
     try:
         return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
     except Exception:
@@ -134,6 +140,24 @@ def inicializar_bd():
             observaciones TEXT,
             tecnico VARCHAR(100)
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pruebas_aislamiento (
+            id SERIAL PRIMARY KEY,
+            fecha_hora TIMESTAMP,
+            equipo VARCHAR(100),
+            voltaje_prueba_v INT,
+            temp_devanado_c FLOAT,
+            r_30s_mohm FLOAT,
+            r_1min_mohm FLOAT,
+            r_10min_mohm FLOAT,
+            r_40c_mohm FLOAT,
+            dar FLOAT,
+            pi FLOAT,
+            diagnostico VARCHAR(100),
+            observaciones TEXT,
+            realizado_por VARCHAR(100)
+        );
         """
     ]
 
@@ -156,7 +180,6 @@ def inicializar_bd():
         except Exception:
             pass
 
-    # Credencial inicial desde st.secrets
     admin_pass = st.secrets.get("admin", {}).get("initial_password", "CambiarCredencialEnSecretos123!")
 
     with engine.begin() as conn:
@@ -183,21 +206,20 @@ if "sesion_valida" not in st.session_state:
     st.session_state["rol_actual"] = None
 
 def logout():
-    """Limpia las variables de sesión y reinicia la app."""
+    """Limpia de forma segura el estado de la sesión."""
+    for key in ["sesion_valida", "usuario_actual", "username_actual", "rol_actual"]:
+        st.session_state[key] = None
     st.session_state["sesion_valida"] = False
-    st.session_state["usuario_actual"] = None
-    st.session_state["username_actual"] = None
-    st.session_state["rol_actual"] = None
     st.rerun()
 
 MAX_INTENTOS = 3
 TIEMPO_BLOQUEO_MINUTOS = 15
 
-def login(usuario, password):
-    """Valida credenciales y aplica bloqueo persistente contra fuerza bruta."""
+def login(usuario: str, password: str):
+    """Valida credenciales, previene Timing Attacks y aplica bloqueo contra fuerza bruta."""
     try:
-        with engine.connect() as conn:
-            # 1. Consultar estado del usuario
+        # Usamos engine.begin() para manejar la transacción de escritura/lectura en Neon
+        with engine.begin() as conn:
             q_user = text("""
                 SELECT username, password_hash, nombre, rol, intentos_fallidos, bloqueado_hasta 
                 FROM usuarios 
@@ -205,42 +227,41 @@ def login(usuario, password):
             """)
             result = conn.execute(q_user, {"u": usuario}).fetchone()
 
+            # Mitigación de Timing Attack: Si el usuario no existe, validamos contra DUMMY_HASH
             if not result:
+                check_password(password, DUMMY_HASH)
                 return False, "❌ Usuario o contraseña incorrectos."
 
-            # Desempaquetar campos
             username, pass_hash, nombre, rol, intentos, bloqueado_hasta = result
             intentos = intentos or 0
 
-            # 2. Verificar si el usuario se encuentra actualmente bloqueado
+            # 1. Verificar si la cuenta está en periodo de bloqueo
             if bloqueado_hasta and datetime.now() < bloqueado_hasta:
                 tiempo_restante = int((bloqueado_hasta - datetime.now()).total_seconds() / 60) + 1
-                return False, f"🚫 Usuario bloqueado por seguridad. Intenta nuevamente en {tiempo_restante} minuto(s)."
+                return False, f"🚫 Cuenta bloqueada por seguridad. Reintenta en {tiempo_restante} min."
 
-            # 3. Validar la contraseña
+            # 2. Comprobar contraseña
             if check_password(password, pass_hash):
-                # Restablecer contador de intentos e historial de bloqueo tras éxito
+                # Restablecer intentos al acertar
                 q_reset = text("""
                     UPDATE usuarios 
                     SET intentos_fallidos = 0, bloqueado_hasta = NULL 
                     WHERE username = :u;
                 """)
                 conn.execute(q_reset, {"u": usuario})
-                conn.commit()
 
-                # Guardar sesión activa
+                # Guardar datos en la sesión activa
                 st.session_state["sesion_valida"] = True
                 st.session_state["username_actual"] = username
                 st.session_state["usuario_actual"] = nombre
                 st.session_state["rol_actual"] = rol
-                return True, "¡Bienvenido!"
+                return True, "¡Bienvenido al sistema!"
 
             else:
-                # Incrementar el contador de fallos
+                # Incremento de intentos fallidos
                 nuevos_intentos = intentos + 1
-                
+
                 if nuevos_intentos >= MAX_INTENTOS:
-                    # Aplicar bloqueo temporal de 15 minutos
                     bloqueo = datetime.now() + timedelta(minutes=TIEMPO_BLOQUEO_MINUTOS)
                     q_block = text("""
                         UPDATE usuarios 
@@ -248,31 +269,26 @@ def login(usuario, password):
                         WHERE username = :u;
                     """)
                     conn.execute(q_block, {"i": nuevos_intentos, "b": bloqueo, "u": usuario})
-                    conn.commit()
-                    return False, f"🚫 Superaste el límite de {MAX_INTENTOS} intentos. Cuenta bloqueada por {TIEMPO_BLOQUEO_MINUTOS} minutos."
+                    return False, f"🚫 Límite de {MAX_INTENTOS} intentos superado. Cuenta bloqueada por {TIEMPO_BLOQUEO_MINUTOS} minutos."
                 else:
-                    # Actualizar únicamente el contador de intentos
                     q_update = text("UPDATE usuarios SET intentos_fallidos = :i WHERE username = :u;")
                     conn.execute(q_update, {"i": nuevos_intentos, "u": usuario})
-                    conn.commit()
                     intentos_restantes = MAX_INTENTOS - nuevos_intentos
-                    return False, f"❌ Contraseña incorrecta. Te quedan {intentos_restantes} intento(s)."
+                    return False, f"❌ Usuario o contraseña incorrectos. Te quedan {intentos_restantes} intento(s)."
 
-    except Exception as e:
-        return False, f"Error al conectar con la base de datos: {e}"
+    except Exception as err:
+        # Registrar el error técnico en logs de servidor y responder algo genérico al usuario
+        logging.error(f"Error de autenticación: {err}")
+        return False, "⚠️ Error de conexión con el servicio de autenticación."
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN (ESTILO GLASSMORPHISM)
+# PANTALLA DE LOGIN
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
-    # Inyección de CSS para fondo pastel 3D, tarjeta de cristal e inputs estilizados
     st.markdown("""
         <style>
-        /* Ocultar barra superior y menú nativo de Streamlit en la pantalla de login */
         header {visibility: hidden;}
         footer {visibility: hidden;}
-        
-        /* Fondo general de la aplicación con degradado suave y esferas simuladas */
         .stApp {
             background: radial-gradient(circle at 15% 30%, #a2c4e3 0%, transparent 40%),
                         radial-gradient(circle at 85% 70%, #92b6db 0%, transparent 45%),
@@ -280,8 +296,6 @@ if not st.session_state["sesion_valida"]:
                         linear-gradient(135deg, #e4ecf5 0%, #cbdcf0 100%);
             background-attachment: fixed;
         }
-
-        /* Contenedor principal estilizado como tarjeta de cristal (Glassmorphism) */
         [data-testid="stVerticalBlockBorderWrapper"] {
             background: rgba(255, 255, 255, 0.45) !important;
             backdrop-filter: blur(16px) saturate(180%) !important;
@@ -292,33 +306,12 @@ if not st.session_state["sesion_valida"]:
                         inset 0 1px 2px rgba(255, 255, 255, 0.8) !important;
             padding: 30px !important;
         }
-
-        /* Estilizado de las cajas de texto (Campos de Usuario y Contraseña) */
         .stTextInput > div > div {
             background-color: rgba(146, 182, 219, 0.4) !important;
             border: 1px solid rgba(255, 255, 255, 0.5) !important;
             border-radius: 12px !important;
             color: #2c3e50 !important;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.03) !important;
         }
-        
-        .stTextInput > div > div:focus-within {
-            border-color: #5c93c4 !important;
-            box-shadow: 0 0 8px rgba(92, 147, 196, 0.4) !important;
-        }
-
-        .stTextInput input {
-            color: #1e293b !important;
-            font-weight: 500;
-        }
-
-        .stTextInput label {
-            color: #475569 !important;
-            font-weight: 600 !important;
-            font-size: 0.85rem !important;
-        }
-
-        /* Botón de acceso (Pill Button con azul suave) */
         .stButton > button {
             background: linear-gradient(135deg, #7ba2c7 0%, #5a8ab8 100%) !important;
             color: white !important;
@@ -326,18 +319,7 @@ if not st.session_state["sesion_valida"]:
             border-radius: 20px !important;
             padding: 10px 24px !important;
             font-weight: 600 !important;
-            letter-spacing: 1px !important;
-            box-shadow: 0 8px 16px rgba(90, 138, 184, 0.3) !important;
-            transition: all 0.3s ease !important;
         }
-
-        .stButton > button:hover {
-            background: linear-gradient(135deg, #6a93bc 0%, #4a7aa8 100%) !important;
-            box-shadow: 0 12px 20px rgba(90, 138, 184, 0.4) !important;
-            transform: translateY(-1px);
-        }
-
-        /* Títulos */
         .login-title {
             text-align: center;
             color: #334155;
@@ -359,13 +341,6 @@ if not st.session_state["sesion_valida"]:
                 usr_input = st.text_input("Usuario", placeholder="ej. operador1")
                 pass_input = st.text_input("Password", type="password", placeholder="••••••••")
                 
-                # Checkbox y enlace estéticos para replicar exactamente la tarjeta
-                c_remember, c_forgot = st.columns([1, 1])
-                with c_remember:
-                    st.checkbox("Remember me", value=True)
-                with c_forgot:
-                    st.markdown("<div style='text-align: right; margin-top: 5px;'><a href='#' style='color: #64748b; font-size: 0.8rem; text-decoration: none;'>Forgot password?</a></div>", unsafe_allow_html=True)
-
                 st.markdown("<br>", unsafe_allow_html=True)
                 btn_login = st.form_submit_button("SIGN IN", use_container_width=True)
 
@@ -374,20 +349,16 @@ if not st.session_state["sesion_valida"]:
                         st.warning("⚠️ Por favor ingresa usuario y contraseña.")
                     else:
                         exito, mensaje = login(usr_input.strip(), pass_input)
-
                         if exito:
                             st.success(mensaje)
                             st.rerun()
                         else:
                             st.error(mensaje)
-
     st.stop()
 
 # ---------------------------------------------------------
-# BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
+# BARRA LATERAL (MENÚ PRINCIPAL)
 # ---------------------------------------------------------
-
-# 1. Menú de navegación principal
 opciones_menu = [
     "Dashboard & KPIs", 
     "Catálogo de Equipos",
@@ -399,15 +370,14 @@ opciones_menu = [
     "Mi Perfil"
 ]
 
-if st.session_state.rol_actual == "admin":
+if st.session_state.get("rol_actual") == "admin":
     opciones_menu.append("Gestión de Usuarios")
 
 opcion = st.sidebar.radio("Menú Principal", opciones_menu)
 
-# 2. Perfil de Usuario y Único Botón de Salida (Al final del Sidebar)
 st.sidebar.markdown("---")
-st.sidebar.markdown(f"👤 **{st.session_state.usuario_actual}**")
-st.sidebar.caption(f"Rol: **{str(st.session_state.rol_actual).upper()}**")
+st.sidebar.markdown(f"👤 **{st.session_state.get('usuario_actual', 'Usuario')}**")
+st.sidebar.caption(f"Rol: **{str(st.session_state.get('rol_actual', '')).upper()}**")
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_logout_unico"):
     logout()
