@@ -5,6 +5,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 import bcrypt
+import logging
 
 # Configurar logging interno para no mostrar trazas de error al usuario
 logging.basicConfig(level=logging.INFO)
