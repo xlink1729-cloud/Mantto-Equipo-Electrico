@@ -736,15 +736,15 @@ elif opcion == "Catálogo de Equipos":
                         edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
-                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro['Estatus'] in estatus_op else 0
+                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro['estatus'] in estatus_op else 0
                         edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
 
                         c_eq1, c_eq2 = st.columns(2)
                         edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro['potencia_hp'] or 0.0), step=5.0)
-                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['Voltaje_nom'] or 0.0), step=10.0)
+                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['voltaje_nom'] or 0.0), step=10.0)
                         
                         c_eq3, c_eq4 = st.columns(2)
-                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro['FLC'] or 0.0), step=1.0)
+                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro['corriente_nom'] or 0.0), step=1.0)
                         edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro['rpm'] or 0), step=50)
 
                         edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro['factor_servicio'] or 1.0), step=0.05)
