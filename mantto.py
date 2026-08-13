@@ -722,7 +722,7 @@ if opcion == "Dashboard & KPIs":
             st.info("No hay registros de inspección disponibles.")
         else:
             # 💡 1. DEDUPLICACIÓN: Tomar sólo la última lectura por equipo para evitar barras apiladas
-            df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            df_graficas = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
 
             col_g1, col_g2 = st.columns(2)
 
