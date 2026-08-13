@@ -624,7 +624,7 @@ if opcion == "Dashboard & KPIs":
     with kpi1:
         st.markdown(f"""
             <div class='kpi-card'>
-                <div class='kpi-title'>Salud Global del Parque</div>
+                <div class='kpi-title'>Salud Global</div>
                 <div class='kpi-value'>{salud_global}%</div>
                 <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
                     {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
