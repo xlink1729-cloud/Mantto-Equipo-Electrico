@@ -262,37 +262,126 @@ def login(usuario, password):
         return False, f"Error al conectar con la base de datos: {e}"
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN
+# PANTALLA DE LOGIN (ESTILO GLASSMORPHISM)
 # ---------------------------------------------------------
-if not st.session_state["sesion_valida"]:
-    col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
+if not st.session_state["sesion_valida"]:[cite: 1]
+    # Inyección de CSS para fondo pastel 3D, tarjeta de cristal e inputs estilizados
+    st.markdown("""
+        <style>
+        /* Ocultar barra superior y menú nativo de Streamlit en la pantalla de login */
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        
+        /* Fondo general de la aplicación con degradado suave y esferas simuladas */
+        .stApp {
+            background: radial-gradient(circle at 15% 30%, #a2c4e3 0%, transparent 40%),
+                        radial-gradient(circle at 85% 70%, #92b6db 0%, transparent 45%),
+                        radial-gradient(circle at 50% 50%, #dbe7f3 0%, transparent 60%),
+                        linear-gradient(135deg, #e4ecf5 0%, #cbdcf0 100%);
+            background-attachment: fixed;
+        }
+
+        /* Contenedor principal estilizado como tarjeta de cristal (Glassmorphism) */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background: rgba(255, 255, 255, 0.45) !important;
+            backdrop-filter: blur(16px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+            border-radius: 24px !important;
+            border: 1px solid rgba(255, 255, 255, 0.6) !important;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 
+                        inset 0 1px 2px rgba(255, 255, 255, 0.8) !important;
+            padding: 30px !important;
+        }
+
+        /* Estilizado de las cajas de texto (Campos de Usuario y Contraseña) */
+        .stTextInput > div > div {
+            background-color: rgba(146, 182, 219, 0.4) !important;
+            border: 1px solid rgba(255, 255, 255, 0.5) !important;
+            border-radius: 12px !important;
+            color: #2c3e50 !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.03) !important;
+        }
+        
+        .stTextInput > div > div:focus-within {
+            border-color: #5c93c4 !important;
+            box-shadow: 0 0 8px rgba(92, 147, 196, 0.4) !important;
+        }
+
+        .stTextInput input {
+            color: #1e293b !important;
+            font-weight: 500;
+        }
+
+        .stTextInput label {
+            color: #475569 !important;
+            font-weight: 600 !important;
+            font-size: 0.85rem !important;
+        }
+
+        /* Botón de acceso (Pill Button con azul suave) */
+        .stButton > button {
+            background: linear-gradient(135deg, #7ba2c7 0%, #5a8ab8 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 20px !important;
+            padding: 10px 24px !important;
+            font-weight: 600 !important;
+            letter-spacing: 1px !important;
+            box-shadow: 0 8px 16px rgba(90, 138, 184, 0.3) !important;
+            transition: all 0.3s ease !important;
+        }
+
+        .stButton > button:hover {
+            background: linear-gradient(135deg, #6a93bc 0%, #4a7aa8 100%) !important;
+            box-shadow: 0 12px 20px rgba(90, 138, 184, 0.4) !important;
+            transform: translateY(-1px);
+        }
+
+        /* Títulos */
+        .login-title {
+            text-align: center;
+            color: #334155;
+            font-weight: 700;
+            letter-spacing: 2px;
+            margin-bottom: 25px;
+            font-size: 1.6rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col_l1, col_l2, col_l3 = st.columns([1, 1.3, 1])
 
     with col_l2:
-        st.markdown("<h2 style='text-align: center;'>⚡ Monitoreo Electromecánico</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: gray;'>Gestión de Equipos y Aislamiento</p>", unsafe_allow_html=True)
-
         with st.container(border=True):
-            st.subheader("🔑 Acceso al Sistema")
+            st.markdown("<div class='login-title'>LOGIN</div>", unsafe_allow_html=True)
 
-            with st.form("form_login", clear_on_submit=False):
-                usr_input = st.text_input("Usuario", placeholder="Ej. operador1")
-                pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
+            with st.form("form_login", clear_on_submit=False):[cite: 1]
+                usr_input = st.text_input("Usuario", placeholder="ej. operador1")
+                pass_input = st.text_input("Password", type="password", placeholder="••••••••")
                 
-                btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True, type="primary")
+                # Checkbox y enlace estéticos para replicar exactamente la tarjeta
+                c_remember, c_forgot = st.columns([1, 1])
+                with c_remember:
+                    st.checkbox("Remember me", value=True)
+                with c_forgot:
+                    st.markdown("<div style='text-align: right; margin-top: 5px;'><a href='#' style='color: #64748b; font-size: 0.8rem; text-decoration: none;'>Forgot password?</a></div>", unsafe_allow_html=True)
 
-                if btn_login:
-                    if not usr_input.strip() or not pass_input.strip():
-                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")
+                st.markdown("<br>", unsafe_allow_html=True)
+                btn_login = st.form_submit_button("SIGN IN", use_container_width=True)[cite: 1]
+
+                if btn_login:[cite: 1]
+                    if not usr_input.strip() or not pass_input.strip():[cite: 1]
+                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")[cite: 1]
                     else:
-                        exito, mensaje = login(usr_input.strip(), pass_input)
+                        exito, mensaje = login(usr_input.strip(), pass_input)[cite: 1]
 
-                        if exito:
-                            st.success(mensaje)
-                            st.rerun()
+                        if exito:[cite: 1]
+                            st.success(mensaje)[cite: 1]
+                            st.rerun()[cite: 1]
                         else:
-                            st.error(mensaje)
+                            st.error(mensaje)[cite: 1]
 
-    st.stop()
+    st.stop()[cite: 1]
 
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
@@ -1600,4 +1689,4 @@ elif opcion == "Gestión de Usuarios" and st.session_state.rol_actual == "admin"
     with tab_lista:
         st.subheader("👥 Usuarios Registrados")
         usuarios_df = pd.read_sql_query("SELECT id, username, nombre, rol FROM usuarios;", engine)
-        st.dataframe(usuarios_df, use_container_width=True)
+        st.dataframe(usuarios_df, use_container_width=True) 
