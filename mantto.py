@@ -715,12 +715,14 @@ if opcion == "Dashboard & KPIs":
     # --- SECCIÓN DE GRÁFICAS SEPARADAS Y DEDUPLICADAS ---
     with tab_scatter:
         st.subheader("📈 Análisis de Parámetros Operativos")
+
+        df_insp = obtener_datos()
         
-        if df_insp.empty:
+        if df_insp is None or df_insp.empty:
             st.info("No hay registros de inspección disponibles.")
         else:
             # 💡 1. DEDUPLICACIÓN: Tomar sólo la última lectura por equipo para evitar barras apiladas
-            df_graficas = df_insp.sort_values('fecha', ascending=False).groupby('equipo').first().reset_index()
+            df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
 
             col_g1, col_g2 = st.columns(2)
 
