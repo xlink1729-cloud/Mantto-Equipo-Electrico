@@ -740,15 +740,15 @@ elif opcion == "Catálogo de Equipos":
                         edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
 
                         c_eq1, c_eq2 = st.columns(2)
-                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro['Potencia_hp'] or 0.0), step=5.0)
-                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['Voltaje_nom'] or 0.0), step=10.0)
+                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro['Potencia_HP'] or 0.0), step=5.0)
+                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['Voltaje_Nom'] or 0.0), step=10.0)
                         
                         c_eq3, c_eq4 = st.columns(2)
                         edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro['FLC'] or 0.0), step=1.0)
                         edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro['RPM'] or 0), step=50)
 
                         edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro['Factor_servicio'] or 1.0), step=0.05)
-                        edit_obs = st.text_area("Observaciones", value=str(eq_registro['Observaciones'] or ""))
+                        edit_obs = st.text_area("Observaciones", value=str(eq_registro['observaciones'] or ""))
 
                         btn_update_eq = st.form_submit_button("💾 Guardar Cambios")
 
