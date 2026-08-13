@@ -355,7 +355,7 @@ if not st.session_state["sesion_valida"]:[cite: 1]
         with st.container(border=True):
             st.markdown("<div class='login-title'>LOGIN</div>", unsafe_allow_html=True)
 
-            with st.form("form_login", clear_on_submit=False):[cite: 1]
+            with st.form("form_login", clear_on_submit=False):
                 usr_input = st.text_input("Usuario", placeholder="ej. operador1")
                 pass_input = st.text_input("Password", type="password", placeholder="••••••••")
                 
@@ -367,21 +367,21 @@ if not st.session_state["sesion_valida"]:[cite: 1]
                     st.markdown("<div style='text-align: right; margin-top: 5px;'><a href='#' style='color: #64748b; font-size: 0.8rem; text-decoration: none;'>Forgot password?</a></div>", unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
-                btn_login = st.form_submit_button("SIGN IN", use_container_width=True)[cite: 1]
+                btn_login = st.form_submit_button("SIGN IN", use_container_width=True)
 
-                if btn_login:[cite: 1]
-                    if not usr_input.strip() or not pass_input.strip():[cite: 1]
-                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")[cite: 1]
+                if btn_login:
+                    if not usr_input.strip() or not pass_input.strip():
+                        st.warning("⚠️ Por favor ingresa usuario y contraseña.")
                     else:
-                        exito, mensaje = login(usr_input.strip(), pass_input)[cite: 1]
+                        exito, mensaje = login(usr_input.strip(), pass_input)
 
-                        if exito:[cite: 1]
-                            st.success(mensaje)[cite: 1]
-                            st.rerun()[cite: 1]
+                        if exito:
+                            st.success(mensaje)
+                            st.rerun()
                         else:
-                            st.error(mensaje)[cite: 1]
+                            st.error(mensaje)
 
-    st.stop()[cite: 1]
+    st.stop()
 
 # ---------------------------------------------------------
 # BARRA LATERAL (MENÚ PRINCIPAL Y SESIÓN ÚNICA)
