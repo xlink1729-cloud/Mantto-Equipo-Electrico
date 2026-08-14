@@ -852,11 +852,11 @@ if opcion == "Dashboard & KPIs":
 # 2. CATÁLOGO DE EQUIPOS
 # ---------------------------------------------------------
 elif opcion == "Catálogo de Equipos":
-    st.title("🏷️ Catálogo de Placas de Datos y Ubicaciones")
+    st.title("🏷️ Catálogo de Placas de Datos e Instalación Eléctrica")
 
     tab1, tab2, tab3 = st.tabs([
         "📋 Lista de Equipos Registrados", 
-        "➕ Registrar Placa de Datos",
+        "➕ Registrar Equipo e Instalación",
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
@@ -867,9 +867,13 @@ elif opcion == "Catálogo de Equipos":
         else:
             st.dataframe(df_eq, use_container_width=True)
 
+    # --- TAB 2: ALTA DE EQUIPO Y DATOS DE INSTALACIÓN ---
     with tab2:
-        st.subheader("Alta de Equipo desde Placa de Datos")
+        st.subheader("Alta de Equipo, Placa y Parámetros Eléctricos")
         with st.form("form_nuevo_equipo", clear_on_submit=True):
+            
+            # SECCIÓN 1: DATOS DE PLACA
+            st.markdown("##### 🏷️ Datos Placa de Motor")
             col_e1, col_e2 = st.columns(2)
             
             with col_e1:
@@ -877,26 +881,47 @@ elif opcion == "Catálogo de Equipos":
                 ubic = st.text_input("Ubicación en Planta / Área *", placeholder="Ej. Pozo Profundo No. 3, Estación B")
                 marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. US Motors / Siemens 1LA")
                 no_serie = st.text_input("Número de Serie", placeholder="Ej. SN-8894021")
-                frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC, 180M")
+                frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC")
                 estatus_e = st.selectbox("Estatus Operativo", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
 
             with col_e2:
                 pot_hp = st.number_input("Potencia (HP)", value=50.0, step=5.0)
                 v_nom = st.number_input("Voltaje Nominal (V)", value=440.0, step=10.0)
-                i_nom = st.number_input("Corriente Nominal / FLA (A) *", value=65.0, step=1.0, help="Dato clave para calcular el Factor de Carga NEMA")
+                i_nom = st.number_input("Corriente Nominal / FLA (A) *", value=65.0, step=1.0)
                 rpm_e = st.number_input("Velocidad Nominal (RPM)", value=1750, step=50)
-                fs_e = st.number_input("Factor de Servicio (F.S.)", value=1.0, step=0.05, help="Usa 1.0 por defecto si la placa no lo incluye")
+                fs_e = st.number_input("Factor de Servicio (F.S.)", value=1.0, step=0.05)
 
-            obs_eq = st.text_area("Observaciones Adicionales de la Placa")
-            btn_guardar_eq = st.form_submit_button("💾 Guardar Placa en Catálogo")
+            st.divider()
+
+            # SECCIÓN 2: PROTECCIONES Y ALIMENTACIÓN (NUEVO)
+            st.markdown("##### ⚡ Protecciones y Cableado de Alimentación")
+            col_p1, col_p2 = st.columns(2)
+
+            with col_p1:
+                breaker_a = st.number_input("Capacidad Interruptor / Breaker (A)", value=100.0, step=5.0, help="Capacidad nominal del MCCB/Guardamotor")
+                sobrecarga_a = st.number_input("Ajuste Termomagnético / Relevador (A)", value=65.0, step=1.0, help="Corriente de disparo ajustada en campo")
+
+            with col_p2:
+                calibre_c = st.text_input("Calibre de Conductor", placeholder="Ej. 3/0 AWG, 250 kcmil, 8 AWG")
+                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=25.0, step=5.0, help="Útil para calcular caída de tensión teórica")
+
+            obs_eq = st.text_area("Observaciones Adicionales (Placa o Instalación)")
+            btn_guardar_eq = st.form_submit_button("💾 Guardar en Catálogo")
 
             if btn_guardar_eq:
                 if not cod_eq.strip():
                     st.error("El Identificador del Equipo es obligatorio.")
                 else:
                     q_ins_eq = text("""
-                    INSERT INTO catalogo_equipos (codigo_equipo, ubicacion, marca_modelo, no_serie, frame, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, estatus, observaciones)
-                    VALUES (:cod, :ub, :mm, :ns, :fr, :php, :vnom, :inom, :rpm, :fs, :est, :obs);
+                    INSERT INTO catalogo_equipos (
+                        codigo_equipo, ubicacion, marca_modelo, no_serie, frame, 
+                        potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, 
+                        estatus, breaker_amp, overload_setting, calibre_cable, distancia_m, observaciones
+                    ) VALUES (
+                        :cod, :ub, :mm, :ns, :fr, 
+                        :php, :vnom, :inom, :rpm, :fs, 
+                        :est, :brk, :ovl, :cal, :dist, :obs
+                    );
                     """)
                     
                     try:
@@ -904,19 +929,22 @@ elif opcion == "Catálogo de Equipos":
                             conn.execute(q_ins_eq, {
                                 "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
                                 "fr": frame_m, "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
-                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e, "obs": obs_eq
+                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
+                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c, "dist": dist_m,
+                                "obs": obs_eq
                             })
-                        st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente en el catálogo.")
+                        st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al guardar (probablemente el identificador ya existe): {e}")
+                        st.error(f"❌ Error al guardar en la base de datos: {e}")
 
+    # --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
     with tab3:
         df_eq = obtener_equipos()
         if df_eq.empty:
             st.info("No hay equipos en el catálogo para editar o eliminar.")
         else:
-            st.subheader("🛠️ Gestor de Placas Registradas")
+            st.subheader("🛠️ Gestor de Placas e Instalaciones")
             lista_codigos = df_eq['codigo_equipo'].tolist()
             eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos)
 
@@ -925,29 +953,41 @@ elif opcion == "Catálogo de Equipos":
             col_edit_eq, col_del_eq = st.columns(2)
 
             with col_edit_eq:
-                with st.expander("✏️ Editar Placa de Datos", expanded=True):
+                with st.expander("✏️ Editar Ficha del Equipo", expanded=True):
                     with st.form(f"form_edit_eq_{eq_registro['id']}"):
-                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro['ubicacion'] or ""))
-                        edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro['marca_modelo'] or ""))
-                        edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro['no_serie'] or ""))
+                        
+                        st.markdown("**1. Placa de Datos**")
+                        edit_ubic = st.text_input("Ubicación", value=str(eq_registro.get('ubicacion', '') or ""))
+                        edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro.get('marca_modelo', '') or ""))
+                        edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro.get('no_serie', '') or ""))
                         
                         val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
-                        edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
+                        edit_frame = st.text_input("Armazón / Frame", value=val_frame)
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
-                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro['estatus'] in estatus_op else 0
+                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro.get('estatus') in estatus_op else 0
                         edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
 
                         c_eq1, c_eq2 = st.columns(2)
-                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro['potencia_hp'] or 0.0), step=5.0)
-                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro['voltaje_nom'] or 0.0), step=10.0)
+                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro.get('potencia_hp', 0.0) or 0.0), step=5.0)
+                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro.get('voltaje_nom', 0.0) or 0.0), step=10.0)
                         
                         c_eq3, c_eq4 = st.columns(2)
-                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro['corriente_nom'] or 0.0), step=1.0)
-                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro['rpm'] or 0), step=50)
+                        edit_i_nom = c_eq3.number_input("FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0)
+                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro.get('rpm', 0) or 0), step=50)
 
-                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro['factor_servicio'] or 1.0), step=0.05)
-                        edit_obs = st.text_area("Observaciones", value=str(eq_registro['observaciones'] or ""))
+                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro.get('factor_servicio', 1.0) or 1.0), step=0.05)
+
+                        st.markdown("**2. Protecciones y Cableado**")
+                        c_p1, c_p2 = st.columns(2)
+                        edit_brk = c_p1.number_input("Breaker (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
+                        edit_ovl = c_p2.number_input("Ajuste Sobrecarga (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0)
+                        
+                        c_p3, c_p4 = st.columns(2)
+                        edit_cal = c_p3.text_input("Calibre Cable", value=str(eq_registro.get('calibre_cable', '') or ""))
+                        edit_dist = c_p4.number_input("Distancia (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
+
+                        edit_obs = st.text_area("Observaciones", value=str(eq_registro.get('observaciones', '') or ""))
 
                         btn_update_eq = st.form_submit_button("💾 Guardar Cambios")
 
@@ -964,50 +1004,47 @@ elif opcion == "Catálogo de Equipos":
                                 rpm = :rpm,
                                 factor_servicio = :fs,
                                 estatus = :est,
+                                breaker_amp = :brk,
+                                overload_setting = :ovl,
+                                calibre_cable = :cal,
+                                distancia_m = :dist,
                                 observaciones = :obs
                             WHERE id = :id;
                             """)
 
                             params_upd_eq = {
-                                "ub": edit_ubic,
-                                "mm": edit_marca_m,
-                                "ns": edit_no_serie,
-                                "fr": edit_frame,
-                                "php": edit_pot_hp,
-                                "vnom": edit_v_nom,
-                                "inom": edit_i_nom,
-                                "rpm": edit_rpm,
-                                "fs": edit_fs,
-                                "est": edit_estatus,
-                                "obs": edit_obs,
+                                "ub": edit_ubic, "mm": edit_marca_m, "ns": edit_no_serie, "fr": edit_frame,
+                                "php": edit_pot_hp, "vnom": edit_v_nom, "inom": edit_i_nom, "rpm": edit_rpm,
+                                "fs": edit_fs, "est": edit_estatus, "brk": edit_brk, "ovl": edit_ovl,
+                                "cal": edit_cal, "dist": edit_dist, "obs": edit_obs,
                                 "id": int(eq_registro['id'])
                             }
 
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(q_upd_eq, params_upd_eq)
-                                st.success(f"✅ Equipo **{eq_sel_cod}** actualizado correctamente.")
+                                st.success(f"✅ Equipo **{eq_sel_cod}** actualizado.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error al actualizar el equipo: {e}")
+                                st.error(f"❌ Error al actualizar: {e}")
 
             with col_del_eq:
                 with st.expander("🗑️ Eliminar Equipo del Catálogo", expanded=True):
-                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo de equipos?")
-                    st.write(f"**Ubicación:** {eq_registro['ubicacion']}")
-                    st.write(f"**Marca/Modelo:** {eq_registro['marca_modelo']}")
-                    st.write(f"**Frame:** {eq_registro.get('frame', 'N/A')}")
-                    st.write(f"**Corriente Nom (FLA):** {eq_registro['corriente_nom']} A")
+                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}**?")
+                    st.write(f"**Ubicación:** {eq_registro.get('ubicacion', 'N/A')}")
+                    st.write(f"**FLA:** {eq_registro.get('corriente_nom', 0)} A")
+                    st.write(f"**Breaker:** {eq_registro.get('breaker_amp', 'N/A')} A")
+                    st.write(f"**Calibre Cable:** {eq_registro.get('calibre_cable', 'N/A')}")
 
                     if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
                         q_del_eq = text("DELETE FROM catalogo_equipos WHERE id = :id;")
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_eq, {"id": int(eq_registro['id'])})
-                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado con éxito.")
+                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar el equipo: {e}")
+                            st.error(f"❌ Error al eliminar: {e}")
 
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
