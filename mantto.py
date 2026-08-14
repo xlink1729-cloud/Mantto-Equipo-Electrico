@@ -713,9 +713,9 @@ if opcion == "Dashboard & KPIs":
                         </div>
                     """, unsafe_allow_html=True)
 
-    # TAB 2: DIAGRAMA FASORIAL / VECTORES (AQUÍ ESTABA LO QUE FALTABA)
+    # TAB 2: DIAGRAMA FASORIAL / VECTORES (VOLTAJE Y CORRIENTE)
     with tab_radar:
-        st.subheader("📐 Diagrama Fasorial de Corrientes (Vectores Trifásicos)")
+        st.subheader("📐 Diagrama Fasorial Trifásico")
         
         df_insp = obtener_datos()
         
@@ -725,21 +725,36 @@ if opcion == "Dashboard & KPIs":
             # Filtrar última lectura por equipo
             df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
             
-            # Selector de equipo
-            equipos_disponibles = df_reciente['equipo'].unique().tolist()
-            equipo_sel = st.selectbox("Selecciona un equipo para evaluar sus vectores:", equipos_disponibles)
+            # Layout de controles arriba del gráfico
+            col_eq, col_tipo = st.columns([2, 1])
+            
+            with col_eq:
+                equipos_disponibles = df_reciente['equipo'].unique().tolist()
+                equipo_sel = st.selectbox("Selecciona equipo:", equipos_disponibles)
+                
+            with col_tipo:
+                tipo_param = st.radio("Métrica a evaluar:", ["Corriente (A)", "Voltaje (V)"], horizontal=True)
             
             # Extraer fila del equipo seleccionado
             datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
             
-            # Tomar corrientes por fase (buscando nombres estándar)
-            i_a = float(datos_eq.get('i_a', datos_eq.get('i_l1', 0)))
-            i_b = float(datos_eq.get('i_b', datos_eq.get('i_l2', 0)))
-            i_c = float(datos_eq.get('i_c', datos_eq.get('i_l3', 0)))
+            # Mapeo según la selección del usuario
+            if tipo_param == "Corriente (A)":
+                f1 = float(datos_eq.get('i_a', datos_eq.get('i_l1', 0)))
+                f2 = float(datos_eq.get('i_b', datos_eq.get('i_l2', 0)))
+                f3 = float(datos_eq.get('i_c', datos_eq.get('i_l3', 0)))
+                unidad = "A"
+                titulo_graf = f"Vectores de Corriente - {equipo_sel}"
+            else:
+                f1 = float(datos_eq.get('v_ab', datos_eq.get('v_l1', 0)))
+                f2 = float(datos_eq.get('v_bc', datos_eq.get('v_l2', 0)))
+                f3 = float(datos_eq.get('v_ca', datos_eq.get('v_l3', 0)))
+                unidad = "V"
+                titulo_graf = f"Vectores de Voltaje - {equipo_sel}"
             
             # Ángulos estándar trifásicos (0°, 120°, 240°)
             angulos = [0, 120, 240]
-            magnitudes = [i_a, i_b, i_c]
+            magnitudes = [f1, f2, f3]
             fases = ['Fase A (L1)', 'Fase B (L2)', 'Fase C (L3)']
             colores = ['#e74c3c', '#f1c40f', '#3498db']  # Rojo, Amarillo, Azul
             
@@ -750,7 +765,7 @@ if opcion == "Dashboard & KPIs":
                     r=[0, mag],
                     theta=[ang, ang],
                     mode='lines+markers',
-                    name=f"{fase}: {mag:.1f} A",
+                    name=f"{fase}: {mag:.1f} {unidad}",
                     line=dict(color=color, width=4),
                     marker=dict(size=8, symbol='arrow-bar-up')
                 ))
@@ -760,7 +775,7 @@ if opcion == "Dashboard & KPIs":
                     radialaxis=dict(
                         visible=True, 
                         range=[0, max(magnitudes) * 1.15 if max(magnitudes) > 0 else 10],
-                        title="Corriente (A)"
+                        title=f"Magnitud ({unidad})"
                     ),
                     angularaxis=dict(
                         tickmode='array',
@@ -770,7 +785,7 @@ if opcion == "Dashboard & KPIs":
                     )
                 ),
                 height=450,
-                title=f"Vectores de Corriente - {equipo_sel}",
+                title=titulo_graf,
                 showlegend=True,
                 legend=dict(orientation="h", y=-0.1)
             )
