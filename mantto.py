@@ -893,17 +893,19 @@ elif opcion == "Catálogo de Equipos":
 
             st.divider()
 
-            # SECCIÓN 2: PROTECCIONES Y ALIMENTACIÓN (NUEVO)
+            # SECCIÓN 2: PROTECCIONES Y ALIMENTACIÓN
             st.markdown("##### ⚡ Protecciones y Cableado de Alimentación")
             col_p1, col_p2 = st.columns(2)
 
             with col_p1:
                 breaker_a = st.number_input("Capacidad Interruptor / Breaker (A)", value=100.0, step=5.0, help="Capacidad nominal del MCCB/Guardamotor")
                 sobrecarga_a = st.number_input("Ajuste Termomagnético / Relevador (A)", value=65.0, step=1.0, help="Corriente de disparo ajustada en campo")
+                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=25.0, step=5.0, help="Distancia lineal de cableado")
 
             with col_p2:
                 calibre_c = st.text_input("Calibre de Conductor", placeholder="Ej. 3/0 AWG, 250 kcmil, 8 AWG")
-                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=25.0, step=5.0, help="Útil para calcular caída de tensión teórica")
+                material_c = st.selectbox("Material del Conductor", ["Cobre (Cu)", "Aluminio (Al)"])
+                hilos_fase = st.number_input("Conductores por Fase", value=1, min_value=1, max_value=6, step=1, help="Número de cables en paralelo por fase")
 
             obs_eq = st.text_area("Observaciones Adicionales (Placa o Instalación)")
             btn_guardar_eq = st.form_submit_button("💾 Guardar en Catálogo")
@@ -916,11 +918,13 @@ elif opcion == "Catálogo de Equipos":
                     INSERT INTO catalogo_equipos (
                         codigo_equipo, ubicacion, marca_modelo, no_serie, frame, 
                         potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, 
-                        estatus, breaker_amp, overload_setting, calibre_cable, distancia_m, observaciones
+                        estatus, breaker_amp, overload_setting, calibre_cable, material_conductor,
+                        conductores_por_fase, distancia_m, observaciones
                     ) VALUES (
                         :cod, :ub, :mm, :ns, :fr, 
                         :php, :vnom, :inom, :rpm, :fs, 
-                        :est, :brk, :ovl, :cal, :dist, :obs
+                        :est, :brk, :ovl, :cal, :mat,
+                        :hilos, :dist, :obs
                     );
                     """)
                     
@@ -930,7 +934,8 @@ elif opcion == "Catálogo de Equipos":
                                 "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
                                 "fr": frame_m, "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
                                 "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
-                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c, "dist": dist_m,
+                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
+                                "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
                                 "obs": obs_eq
                             })
                         st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
@@ -985,7 +990,15 @@ elif opcion == "Catálogo de Equipos":
                         
                         c_p3, c_p4 = st.columns(2)
                         edit_cal = c_p3.text_input("Calibre Cable", value=str(eq_registro.get('calibre_cable', '') or ""))
-                        edit_dist = c_p4.number_input("Distancia (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
+                        
+                        mat_op = ["Cobre (Cu)", "Aluminio (Al)"]
+                        val_mat = str(eq_registro.get('material_conductor', 'Cobre (Cu)'))
+                        idx_mat = mat_op.index(val_mat) if val_mat in mat_op else 0
+                        edit_mat = c_p4.selectbox("Material Conductor", mat_op, index=idx_mat)
+
+                        c_p5, c_p6 = st.columns(2)
+                        edit_hilos = c_p5.number_input("Conductores por Fase", value=int(eq_registro.get('conductores_por_fase', 1) or 1), min_value=1, max_value=6, step=1)
+                        edit_dist = c_p6.number_input("Distancia (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
 
                         edit_obs = st.text_area("Observaciones", value=str(eq_registro.get('observaciones', '') or ""))
 
@@ -1007,6 +1020,8 @@ elif opcion == "Catálogo de Equipos":
                                 breaker_amp = :brk,
                                 overload_setting = :ovl,
                                 calibre_cable = :cal,
+                                material_conductor = :mat,
+                                conductores_por_fase = :hilos,
                                 distancia_m = :dist,
                                 observaciones = :obs
                             WHERE id = :id;
@@ -1016,8 +1031,8 @@ elif opcion == "Catálogo de Equipos":
                                 "ub": edit_ubic, "mm": edit_marca_m, "ns": edit_no_serie, "fr": edit_frame,
                                 "php": edit_pot_hp, "vnom": edit_v_nom, "inom": edit_i_nom, "rpm": edit_rpm,
                                 "fs": edit_fs, "est": edit_estatus, "brk": edit_brk, "ovl": edit_ovl,
-                                "cal": edit_cal, "dist": edit_dist, "obs": edit_obs,
-                                "id": int(eq_registro['id'])
+                                "cal": edit_cal, "mat": edit_mat, "hilos": edit_hilos, "dist": edit_dist, 
+                                "obs": edit_obs, "id": int(eq_registro['id'])
                             }
 
                             try:
@@ -1033,8 +1048,8 @@ elif opcion == "Catálogo de Equipos":
                     st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}**?")
                     st.write(f"**Ubicación:** {eq_registro.get('ubicacion', 'N/A')}")
                     st.write(f"**FLA:** {eq_registro.get('corriente_nom', 0)} A")
-                    st.write(f"**Breaker:** {eq_registro.get('breaker_amp', 'N/A')} A")
-                    st.write(f"**Calibre Cable:** {eq_registro.get('calibre_cable', 'N/A')}")
+                    st.write(f"**Cableado:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
+                    st.write(f"**Distancia:** {eq_registro.get('distancia_m', 0)} m")
 
                     if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
                         q_del_eq = text("DELETE FROM catalogo_equipos WHERE id = :id;")
