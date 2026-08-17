@@ -949,7 +949,7 @@ elif opcion == "Catálogo de Equipos":
         if df_eq.empty:
             st.info("No hay equipos en el catálogo para editar o eliminar.")
         else:
-            st.subheader("🛠️ Gestor de Placas e Instalaciones")
+            st.subheader("🛠️ Gestor de Placas e Instalaciones Registradas")
             lista_codigos = df_eq['codigo_equipo'].tolist()
             eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos)
 
@@ -958,19 +958,20 @@ elif opcion == "Catálogo de Equipos":
             col_edit_eq, col_del_eq = st.columns(2)
 
             with col_edit_eq:
-                with st.expander("✏️ Editar Ficha del Equipo", expanded=True):
+                with st.expander("✏️ Editar Ficha del Equipo e Instalación", expanded=True):
                     with st.form(f"form_edit_eq_{eq_registro['id']}"):
                         
-                        st.markdown("**1. Placa de Datos**")
-                        edit_ubic = st.text_input("Ubicación", value=str(eq_registro.get('ubicacion', '') or ""))
+                        st.markdown("##### 🏷️ 1. Placa de Datos del Motor")
+                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro.get('ubicacion', '') or ""))
                         edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro.get('marca_modelo', '') or ""))
                         edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro.get('no_serie', '') or ""))
                         
                         val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
-                        edit_frame = st.text_input("Armazón / Frame", value=val_frame)
+                        edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
-                        idx_est = estatus_op.index(eq_registro['estatus']) if eq_registro.get('estatus') in estatus_op else 0
+                        val_est = eq_registro.get('estatus', 'Operativo')
+                        idx_est = estatus_op.index(val_est) if val_est in estatus_op else 0
                         edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
 
                         c_eq1, c_eq2 = st.columns(2)
@@ -978,18 +979,20 @@ elif opcion == "Catálogo de Equipos":
                         edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro.get('voltaje_nom', 0.0) or 0.0), step=10.0)
                         
                         c_eq3, c_eq4 = st.columns(2)
-                        edit_i_nom = c_eq3.number_input("FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0)
+                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0)
                         edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro.get('rpm', 0) or 0), step=50)
 
                         edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro.get('factor_servicio', 1.0) or 1.0), step=0.05)
 
-                        st.markdown("**2. Protecciones y Cableado**")
+                        st.divider()
+
+                        st.markdown("##### ⚡ 2. Protecciones y Cableado")
                         c_p1, c_p2 = st.columns(2)
-                        edit_brk = c_p1.number_input("Breaker (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
+                        edit_brk = c_p1.number_input("Breaker / MCCB (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
                         edit_ovl = c_p2.number_input("Ajuste Sobrecarga (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0)
                         
                         c_p3, c_p4 = st.columns(2)
-                        edit_cal = c_p3.text_input("Calibre Cable", value=str(eq_registro.get('calibre_cable', '') or ""))
+                        edit_cal = c_p3.text_input("Calibre Conductor", value=str(eq_registro.get('calibre_cable', '') or ""))
                         
                         mat_op = ["Cobre (Cu)", "Aluminio (Al)"]
                         val_mat = str(eq_registro.get('material_conductor', 'Cobre (Cu)'))
@@ -998,11 +1001,13 @@ elif opcion == "Catálogo de Equipos":
 
                         c_p5, c_p6 = st.columns(2)
                         edit_hilos = c_p5.number_input("Conductores por Fase", value=int(eq_registro.get('conductores_por_fase', 1) or 1), min_value=1, max_value=6, step=1)
-                        edit_dist = c_p6.number_input("Distancia (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
+                        edit_dist = c_p6.number_input("Distancia a CCM (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
 
-                        edit_obs = st.text_area("Observaciones", value=str(eq_registro.get('observaciones', '') or ""))
+                        st.divider()
 
-                        btn_update_eq = st.form_submit_button("💾 Guardar Cambios")
+                        edit_obs = st.text_area("Observaciones Adicionales", value=str(eq_registro.get('observaciones', '') or ""))
+
+                        btn_update_eq = st.form_submit_button("💾 Guardar Cambios en Ficha")
 
                         if btn_update_eq:
                             q_upd_eq = text("""
@@ -1038,17 +1043,18 @@ elif opcion == "Catálogo de Equipos":
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(q_upd_eq, params_upd_eq)
-                                st.success(f"✅ Equipo **{eq_sel_cod}** actualizado.")
+                                st.success(f"✅ Ficha del equipo **{eq_sel_cod}** actualizada correctamente.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error al actualizar: {e}")
+                                st.error(f"❌ Error al actualizar en base de datos: {e}")
 
             with col_del_eq:
                 with st.expander("🗑️ Eliminar Equipo del Catálogo", expanded=True):
-                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}**?")
+                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo?")
                     st.write(f"**Ubicación:** {eq_registro.get('ubicacion', 'N/A')}")
                     st.write(f"**FLA:** {eq_registro.get('corriente_nom', 0)} A")
-                    st.write(f"**Cableado:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
+                    st.write(f"**Breaker:** {eq_registro.get('breaker_amp', 0)} A")
+                    st.write(f"**Alimentación:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
                     st.write(f"**Distancia:** {eq_registro.get('distancia_m', 0)} m")
 
                     if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
@@ -1056,10 +1062,10 @@ elif opcion == "Catálogo de Equipos":
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_eq, {"id": int(eq_registro['id'])})
-                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado.")
+                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado con éxito.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar: {e}")
+                            st.error(f"❌ Error al eliminar el equipo: {e}")
 
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
