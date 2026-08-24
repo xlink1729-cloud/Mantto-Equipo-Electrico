@@ -1778,10 +1778,10 @@ elif opcion == "Pruebas de Aislamiento":
                 temp_c = st.number_input("Temperatura del Devanado / Carcasa (°C) *", value=25.0, step=1.0, help="Dato clave para calcular la corrección R40")
 
             with col_a2:
-                st.markdown("**Lecturas de Resistencia ($M\Omega$)**")
-                r_30s = st.number_input("Resistencia a los 30 segundos ($M\Omega$)", value=0.0, step=1.0, help="Opcional: Requerido para índice DAR")
-                r_1min = st.number_input("Resistencia a 1 minuto ($M\Omega$) *", value=15.0, step=1.0, help="Obligatorio para la norma IEEE 43")
-                r_10min = st.number_input("Resistencia a los 10 minutos ($M\Omega$)", value=0.0, step=1.0, help="Opcional: Requerido para índice PI")
+                st.markdown("**Lecturas de Resistencia (MΩ)**")
+                r_30s = st.number_input("Resistencia a los 30 segundos (MΩ)", value=0.0, step=1.0, help="Opcional: Requerido para índice DAR")
+                r_1min = st.number_input("Resistencia a 1 minuto (MΩ) *", value=15.0, step=1.0, help="Obligatorio para la norma IEEE 43")
+                r_10min = st.number_input("Resistencia a los 10 minutos (MΩ)", value=0.0, step=1.0, help="Opcional: Requerido para índice PI")
 
                 obs_prueba = st.text_area("Observaciones / Estado del Motor", placeholder="Ej. Motor en stand-by con calefacción encendida. Sin humedad aparente en caja de bornes.")
 
