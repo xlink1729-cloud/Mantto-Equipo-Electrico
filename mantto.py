@@ -675,16 +675,25 @@ if opcion == "Dashboard & KPIs":
 
     # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
-        st.subheader("Estado de Salud por Equipo")
-        if df_equipos.empty:
-            st.info("No hay equipos registrados en el catálogo.")
-        else:
-            cols_grid = st.columns(3)
-            for idx, row in df_equipos.iterrows():
-                col_idx = idx % 3
-                eq_code = row['codigo_equipo']
-                
-                # Buscar última inspección eléctrica del equipo
+    st.subheader("Estado de Salud por Equipo")
+    if df_equipos.empty:
+        st.info("No hay equipos registrados en el catálogo.")
+    else:
+        cols_grid = st.columns(3)
+        for idx, row in df_equipos.iterrows():
+            col_idx = idx % 3
+            eq_code = row['codigo_equipo']
+            estatus_actual = row.get('estatus', 'Operativo')
+            
+            # 1. EVALUAR ESTATUS OPERATIVO DEL CATÁLOGO
+            if estatus_actual == "Standby":
+                st_color = "eq-border-warning" # O clase personalizada en CSS
+                badge_txt = "⏸️ Standby"
+            elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
+                st_color = "eq-border-danger"
+                badge_txt = "🔴 Fuera de Servicio"
+            else:
+                # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE DE ÚLTIMA INSPECCIÓN
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
                 
@@ -699,19 +708,19 @@ if opcion == "Dashboard & KPIs":
                             st_color = "eq-border-warning"
                             badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
-                with cols_grid[col_idx]:
-                    st.markdown(f"""
-                        <div class='equipment-card {st_color}'>
-                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
-                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
-                            <div style='margin-top: 8px;'>
-                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
-                                    Ubicación: {row.get('ubicacion', 'N/A')}
-                                </span>
-                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
-                            </div>
+            with cols_grid[col_idx]:
+                st.markdown(f"""
+                    <div class='equipment-card {st_color}'>
+                        <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
+                        <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                        <div style='margin-top: 8px;'>
+                            <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
+                                Ubicación: {row.get('ubicacion', 'N/A')}
+                            </span>
+                            <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
                         </div>
-                    """, unsafe_allow_html=True)
+                    </div>
+                """, unsafe_allow_html=True)
 
     # TAB 2: DIAGRAMA FASORIAL / VECTORES (VOLTAJE Y CORRIENTE)
     with tab_radar:
@@ -1075,17 +1084,25 @@ elif opcion == "Nueva Inspección Eléctrica":
 
     df_equipos_cat = obtener_equipos()
 
+    # FILTRAR SOLO EQUIPOS CON ESTATUS OPERATIVO
+    if not df_equipos_cat.empty and 'estatus' in df_equipos_cat.columns:
+        df_equipos_activos = df_equipos_cat[df_equipos_cat['estatus'] == 'Operativo']
+    else:
+        df_equipos_activos = df_equipos_cat.copy()
+
     with st.form("form_bomba", clear_on_submit=True):
         st.subheader("📌 Datos Generales del Registro")
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             fecha_insp = st.date_input("Fecha de la Inspección", value=datetime.today().date())
             
-            if not df_equipos_cat.empty:
-                opciones_eq = df_equipos_cat.apply(lambda row: f"{row['codigo_equipo']} ({row['ubicacion']})", axis=1).tolist()
-                eq_seleccionado = st.selectbox("Seleccionar Equipo del Catálogo", opciones_eq)
+            # SECCIÓN DE SELECCIÓN DE EQUIPO FILTRADO
+            if not df_equipos_activos.empty:
+                opciones_eq = df_equipos_activos.apply(lambda row: f"{row['codigo_equipo']} ({row['ubicacion']})", axis=1).tolist()
+                eq_seleccionado = st.selectbox("Seleccionar Equipo del Catálogo (Solo Operativos)", opciones_eq)
                 equipo = eq_seleccionado.split(" (")[0].strip()
             else:
+                st.warning("⚠️ No hay equipos en estatus 'Operativo'. Se muestra campo manual.")
                 equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 01").strip()
 
         with col_f2:
