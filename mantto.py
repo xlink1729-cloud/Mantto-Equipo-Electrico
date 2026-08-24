@@ -676,6 +676,7 @@ if opcion == "Dashboard & KPIs":
     # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
     st.subheader("Estado de Salud por Equipo")
+    
     if df_equipos.empty:
         st.info("No hay equipos registrados en el catálogo.")
     else:
@@ -687,13 +688,13 @@ if opcion == "Dashboard & KPIs":
             
             # 1. EVALUAR ESTATUS OPERATIVO DEL CATÁLOGO
             if estatus_actual == "Standby":
-                st_color = "eq-border-warning" # O clase personalizada en CSS
+                st_color = "eq-border-warning"
                 badge_txt = "⏸️ Standby"
             elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
                 st_color = "eq-border-danger"
                 badge_txt = "🔴 Fuera de Servicio"
             else:
-                # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE DE ÚLTIMA INSPECCIÓN
+                # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
                 
