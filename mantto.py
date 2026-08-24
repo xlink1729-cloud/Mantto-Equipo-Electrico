@@ -875,7 +875,7 @@ elif opcion == "Catálogo de Equipos":
         if df_eq.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            st.dataframe(df_eq, use_container_width=True)
+            st.dataframe(df_eq, width="stretch")
 
     # --- TAB 2: ALTA DE EQUIPO Y DATOS DE INSTALACIÓN ---
     with tab2:
