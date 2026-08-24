@@ -675,7 +675,7 @@ if opcion == "Dashboard & KPIs":
 
     # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
-    st.subheader("Estado de Salud por Equipo")
+        st.subheader("Estado de Salud por Equipo")
     
     if df_equipos.empty:
         st.info("No hay equipos registrados en el catálogo.")
