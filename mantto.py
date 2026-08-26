@@ -441,7 +441,7 @@ def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
     max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
     return round((max_desviacion / promedio) * 100, 2)
 
-def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha") -> pd.DataFrame:
+def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha", key_suffix: str = "default") -> pd.DataFrame:
     """Despliega widgets de filtrado rápido y devuelve el DataFrame filtrado."""
     if df.empty:
         return df
@@ -449,20 +449,20 @@ def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha") -> pd.Data
     c1, c2, c3 = st.columns(3)
 
     # 1. Filtro por Equipo
-    col_equipo = "equipo" if "equipo" in df.columns else ("codigo_equipo" if "codigo_equipo" in df.columns else None)
+    col_equipo = "equipo" if "equipo" in df.columns else ("codigo_equipo" if "codigo_equipo" in df.columns else ("equipo_id" if "equipo_id" in df.columns else None))
     if col_equipo:
-        lista_equipos = ["Todos"] + sorted(list(df[col_equipo].dropna().unique()))
-        equipo_sel = c1.selectbox(f"Filtrar por Equipo:", lista_equipos, key=f"f_eq_{col_fecha}")
+        lista_equipos = ["Todos"] + sorted([str(x) for x in df[col_equipo].dropna().unique()])
+        equipo_sel = c1.selectbox("Filtrar por Equipo:", lista_equipos, key=f"f_eq_{key_suffix}")
         if equipo_sel != "Todos":
-            df = df[df[col_equipo] == equipo_sel]
+            df = df[df[col_equipo].astype(str) == equipo_sel]
 
     # 2. Filtro por Estado / Nivel de Riesgo (si existe en la tabla)
     col_estado = "estado" if "estado" in df.columns else ("nivel_alerta" if "nivel_alerta" in df.columns else None)
     if col_estado:
-        lista_estados = ["Todos"] + sorted(list(df[col_estado].dropna().unique()))
-        estado_sel = c2.selectbox(f"Filtrar por Estado:", lista_estados, key=f"f_est_{col_fecha}")
+        lista_estados = ["Todos"] + sorted([str(x) for x in df[col_estado].dropna().unique()])
+        estado_sel = c2.selectbox("Filtrar por Estado:", lista_estados, key=f"f_est_{key_suffix}")
         if estado_sel != "Todos":
-            df = df[df[col_estado] == estado_sel]
+            df = df[df[col_estado].astype(str) == estado_sel]
 
     # 3. Filtro por Rango de Fechas
     if col_fecha in df.columns:
@@ -475,10 +475,10 @@ def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha") -> pd.Data
             value=(fecha_min, fecha_max),
             min_value=fecha_min,
             max_value=fecha_max,
-            key=f"f_fcha_{col_fecha}"
+            key=f"f_fcha_{key_suffix}"
         )
 
-        if len(rango_fechas) == 2:
+        if isinstance(rango_fechas, (list, tuple)) and len(rango_fechas) == 2:
             f_inicio, f_fin = rango_fechas
             df = df[(df[col_fecha].dt.date >= f_inicio) & (df[col_fecha].dt.date <= f_fin)]
 
@@ -1449,7 +1449,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
             st.info("No hay lecturas termográficas en la base de datos.")
         else:
             # 🟢 Filtro unificado
-            df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion")
+            df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion", key_suffix="historial_termo")
             
             eq_termo_filtro = st.selectbox("Filtrar por Equipo:", ["Todos"] + list(df_termo["equipo_id"].unique()))
             if eq_termo_filtro != "Todos":
@@ -1546,7 +1546,7 @@ elif opcion == "Registro de Eventos":
         if df_eventos.empty:
             st.info("Aún no hay eventos ni incidentes registrados.")
         else:
-            df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora")
+            df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora", key_suffix="registro_eventos")
 
             f_col1, f_col2 = st.columns(2)
             with f_col1:
@@ -1742,7 +1742,7 @@ elif opcion == "Historial de Mediciones":
         st.subheader("📋 Registros Existentes")
         
         # 🟢 COLOCAR AQUÍ LOS FILTROS
-        df_filtrado = aplicar_filtros_tabla(df, col_fecha="fecha")
+        df_filtrado = aplicar_filtros_tabla(df, col_fecha="fecha", key_suffix="historial_mediciones")
         st.dataframe(formatear_df_porcentajes(df_filtrado), use_container_width=True)
 
         st.markdown("---")
