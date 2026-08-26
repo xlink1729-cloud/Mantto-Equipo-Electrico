@@ -1168,6 +1168,15 @@ elif opcion == "Catálogo de Equipos":
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
 # ---------------------------------------------------------
+
+def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
+    """Calcula el porcentaje de desbalance según el estándar NEMA."""
+    promedio = (v1 + v2 + v3) / 3.0
+    if promedio == 0:
+        return 0.0
+    max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
+    return round((max_desviacion / promedio) * 100, 2)
+
 elif opcion == "Nueva Inspección Eléctrica":
     st.title("📋 Lectura Electromecánica en Campo")
 
@@ -1440,8 +1449,8 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
             if eq_termo_filtro != "Todos":
                 df_mostrar_termo = df_termo[df_termo["equipo_id"] == eq_termo_filtro]
             else:
-                df_mostrar_termo = df_termo
-            st.dataframe(df_mostrar_termo, use_container_width=True)
+                df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion")
+            st.dataframe(df_termo_filtrado, use_container_width=True)
 
 # ---------------------------------------------------------
 # 5. REGISTRO DE EVENTOS
@@ -1526,22 +1535,33 @@ elif opcion == "Registro de Eventos":
 
     with tab_historial:
         df_eventos = obtener_eventos()
-
+        
         if df_eventos.empty:
             st.info("Aún no hay eventos ni incidentes registrados.")
         else:
+            # 1. Aplicar filtros generales (Fechas, búsqueda global y ordenamiento)
+            df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora")
+
+            # 2. Filtros específicos de Bitácora (se obtienen opciones del DF base)
             f_col1, f_col2 = st.columns(2)
             with f_col1:
-                filtro_eq = st.multiselect("Filtrar por Equipo:", df_eventos["equipo"].unique())
-            with f_col2:
-                filtro_sev = st.multiselect("Filtrar por Severidad:", df_eventos["severidad"].unique())
+                filtro_eq = st.multiselect(
+                    "Filtrar por Equipo:", 
+                    df_eventos["equipo"].dropna().unique()
+                )
+                with f_col2:
+                    filtro_sev = st.multiselect(
+                        "Filtrar por Severidad:", 
+                        df_eventos["severidad"].dropna().unique()
+                    )
 
-            df_evt_filtered = df_eventos.copy()
+            # 3. Aplicar los filtros secundarios sobre el DF filtrado
             if filtro_eq:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
             if filtro_sev:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
 
+            # 4. Renderizar tabla y botón de descarga
             st.dataframe(df_evt_filtered, use_container_width=True)
 
             csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
@@ -1716,12 +1736,16 @@ elif opcion == "Historial de Mediciones":
         st.info("No hay registros almacenados en la base de datos.")
     else:
         st.subheader("📋 Registros Existentes")
-        st.dataframe(formatear_df_porcentajes(df), use_container_width=True)
+        
+        # 🟢 COLOCAR AQUÍ LOS FILTROS
+        df_filtrado = aplicar_filtros_tabla(df, col_fecha="fecha")
+        st.dataframe(formatear_df_porcentajes(df_filtrado), use_container_width=True)
 
         st.markdown("---")
         st.subheader("🛠️ Modificar o Eliminar un Registro")
 
-        lista_ids = df['id'].tolist()
+        # Se cargan solo los IDs que sobrevivieron al filtro aplicado arriba
+        lista_ids = df_filtrado['id'].tolist() if not df_filtrado.empty else df['id'].tolist()
         id_seleccionado = st.selectbox("Selecciona el ID del registro que deseas gestionar:", lista_ids)
 
         registro = df[df['id'] == id_seleccionado].iloc[0]
