@@ -1169,6 +1169,7 @@ elif opcion == "Catálogo de Equipos":
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
 # ---------------------------------------------------------
 
+# La función debe declararse fuera del condicional 'elif'
 def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
     """Calcula el porcentaje de desbalance según el estándar NEMA."""
     promedio = (v1 + v2 + v3) / 3.0
@@ -1176,6 +1177,7 @@ def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
         return 0.0
     max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
     return round((max_desviacion / promedio) * 100, 2)
+
 
 elif opcion == "Nueva Inspección Eléctrica":
     st.title("📋 Lectura Electromecánica en Campo")
@@ -1285,7 +1287,7 @@ elif opcion == "Nueva Inspección Eléctrica":
                 )
             except Exception as e:
                 st.error(f"❌ Error al insertar datos en la base de datos: {e}")
-
+                
 # ---------------------------------------------------------
 # 4. INSPECCIÓN TERMOGRÁFICA (FLIR ONE PRO) - CAPTURA COMPLETA
 # ---------------------------------------------------------
