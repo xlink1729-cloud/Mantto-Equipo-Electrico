@@ -1514,8 +1514,8 @@ elif opcion == "Registro de Eventos":
                 fecha_hora_completa = datetime.combine(fecha_ev, hora_ev)
 
                 q_ins_ev = text("""
-                INSERT INTO registro_eventos (fecha_hora, equipo, tipo_evento, severidad, descripcion, accion_tomada, estatus, reportado_por)
-                VALUES (:fh, :eq, :te, :sev, :desc, :acc, :est, :rep);
+                    INSERT INTO registro_eventos (fecha_hora, equipo, tipo_evento, severidad, descripcion, accion_tomada, estatus, reportado_por)
+                    VALUES (:fh, :eq, :te, :sev, :desc, :acc, :est, :rep);
                 """)
                 
                 usuario_actual = st.session_state.get("usuario_actual", "Sistema")
@@ -1531,11 +1531,20 @@ elif opcion == "Registro de Eventos":
                     "rep": usuario_actual
                 }
 
+                q_upd_equipo = text("""
+                    UPDATE equipos 
+                    SET estado = :est 
+                    WHERE codigo_equipo = :eq;
+                """)
+                
+                estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
+
                 try:
                     with engine.begin() as conn:
                         conn.execute(q_ins_ev, params_ev)
+                        conn.execute(q_upd_equipo, {"est": estado_catalogo, "eq": str(equipo_ev).strip()})
 
-                    st.success(f"✅ Evento registrado con fecha **{fecha_hora_completa.strftime('%d/%m/%Y %H:%M')}**.")
+                    st.success(f"✅ Evento registrado y estado del equipo actualizado a '{estado_catalogo}'.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar el evento: {e}")
@@ -1624,10 +1633,17 @@ elif opcion == "Registro de Eventos":
                                     accion_final = f"{accion_previa}\n\n{registro_cierre}".strip()
 
                                     q_close_evt = text("""
-                                    UPDATE registro_eventos SET
-                                        estatus = :est,
-                                        accion_tomada = :acc
-                                    WHERE id = :id;
+                                        UPDATE registro_eventos SET
+                                            estatus = :est,
+                                            accion_tomada = :acc
+                                        WHERE id = :id;
+                                    """)
+
+                                    estado_equipo = "Operativo" if nuevo_estatus == "Resuelto" else nuevo_estatus
+                                    q_upd_eq_close = text("""
+                                        UPDATE equipos 
+                                        SET estado = :est 
+                                        WHERE codigo_equipo = :eq;
                                     """)
 
                                     try:
@@ -1637,7 +1653,12 @@ elif opcion == "Registro de Eventos":
                                                 "acc": accion_final,
                                                 "id": int(id_evt_sel)
                                             })
-                                        st.success(f"✅ Evento #{id_evt_sel} marcado como '{nuevo_estatus}'.")
+                                            conn.execute(q_upd_eq_close, {
+                                                "est": estado_equipo, 
+                                                "eq": evt_registro['equipo']
+                                            })
+                                            
+                                        st.success(f"✅ Evento #{id_evt_sel} cerrado y equipo actualizado a '{estado_equipo}'.")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"❌ Error al actualizar el evento: {e}")
@@ -1681,16 +1702,24 @@ elif opcion == "Registro de Eventos":
                             new_fh = datetime.combine(edit_f_ev, edit_h_ev)
 
                             q_upd_evt = text("""
-                            UPDATE registro_eventos SET
-                                fecha_hora = :fh,
-                                equipo = :eq,
-                                tipo_evento = :te,
-                                severidad = :sev,
-                                descripcion = :desc,
-                                accion_tomada = :acc,
-                                estatus = :est
-                            WHERE id = :id;
+                                UPDATE registro_eventos SET
+                                    fecha_hora = :fh,
+                                    equipo = :eq,
+                                    tipo_evento = :te,
+                                    severidad = :sev,
+                                    descripcion = :desc,
+                                    accion_tomada = :acc,
+                                    estatus = :est
+                                WHERE id = :id;
                             """)
+
+                            q_upd_eq_cat = text("""
+                                UPDATE equipos
+                                SET estado = :est
+                                WHERE codigo_equipo = :eq;
+                            """)
+
+                            estado_cat = "Operativo" if edit_est_ev == "Resuelto" else edit_est_ev
 
                             params_upd_evt = {
                                 "fh": new_fh,
@@ -1706,7 +1735,8 @@ elif opcion == "Registro de Eventos":
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(q_upd_evt, params_upd_evt)
-                                st.success(f"✅ Evento #{id_evt_sel} actualizado correctamente.")
+                                    conn.execute(q_upd_eq_cat, {"est": estado_cat, "eq": edit_eq_ev})
+                                st.success(f"✅ Evento #{id_evt_sel} y estado de equipo actualizados.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error al actualizar el evento: {e}")
@@ -1720,13 +1750,23 @@ elif opcion == "Registro de Eventos":
 
                     if st.button("❌ Confirmar Eliminación", key=f"del_evt_{id_evt_sel}"):
                         q_del_evt = text("DELETE FROM registro_eventos WHERE id = :id;")
+                        
+                        # Al eliminar el evento, devolvemos el equipo a estatus Operativo
+                        q_upd_eq_del = text("""
+                            UPDATE equipos 
+                            SET estado = 'Operativo' 
+                            WHERE codigo_equipo = :eq;
+                        """)
+                        
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_evt, {"id": int(id_evt_sel)})
-                            st.success(f"🗑️ Evento #{id_evt_sel} eliminado con éxito.")
+                                conn.execute(q_upd_eq_del, {"eq": str(evt_registro['equipo'])})
+
+                            st.success(f"✅ Evento #{id_evt_sel} eliminado y equipo reestablecido a 'Operativo'.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar evento: {e}")
+                            st.error(f"❌ Error al eliminar el evento: {e}")
 
 # ---------------------------------------------------------
 # 6. HISTORIAL DE MEDICIONES
