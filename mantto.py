@@ -784,33 +784,33 @@ if opcion == "Dashboard & KPIs":
             for idx, row in df_equipos.iterrows():
                 col_idx = idx % 3
                 eq_code = row['codigo_equipo']
-                estatus_actual = row.get('estatus', 'Operativo')
+                estatus_actual = str(row.get('estatus', 'Operativo')).strip()
                 
-                # 1. EVALUAR ESTATUS OPERATIVO DEL CATÁLOGO
-                if estatus_actual == "Standby":
-                    st_color = "eq-border-warning"
-                    badge_txt = "⏸️ Standby"
-                elif estatus_actual == "En Revisión":
+                # 1. EVALUAR ALERTAS ELÉCTRICAS PRIMERO (SI EXISTEN DATOS)
+                st_color = "eq-border-ok"
+                badge_txt = "🟢 Normal"
+                
+                if not df_elec.empty:
+                    eq_data = df_elec[df_elec['equipo'] == eq_code]
+                    if not eq_data.empty:
+                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                        if last_desb > 10.0:
+                            st_color = "eq-border-danger"
+                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                        elif last_desb >= 5.0:
+                            st_color = "eq-border-warning"
+                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+
+                # 2. SOBREESCRIBIR SI TIENE UN ESTATUS ADMINISTRATIVO ESPECÍFICO
+                if estatus_actual in ["En Revisión", "Revisión", "Revision"]:
                     st_color = "eq-border-warning"
                     badge_txt = "🔍 En Revisión"
+                elif estatus_actual == "Standby":
+                    st_color = "eq-border-warning"
+                    badge_txt = "⏸️ Standby"
                 elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
                     st_color = "eq-border-danger"
                     badge_txt = "🔴 Fuera de Servicio"
-                else:
-                    # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE
-                    st_color = "eq-border-ok"
-                    badge_txt = "🟢 Normal"
-                    
-                    if not df_elec.empty:
-                        eq_data = df_elec[df_elec['equipo'] == eq_code]
-                        if not eq_data.empty:
-                            last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                            if last_desb > 10.0:
-                                st_color = "eq-border-danger"
-                                badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                            elif last_desb >= 5.0:
-                                st_color = "eq-border-warning"
-                                badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
                 with cols_grid[col_idx]:
                     st.markdown(f"""
