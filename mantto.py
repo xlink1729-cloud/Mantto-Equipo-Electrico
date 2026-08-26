@@ -773,47 +773,31 @@ if opcion == "Dashboard & KPIs":
         "📈 Factor de Carga vs. Salud"
     ])
 
-# TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
+    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
         st.subheader("Estado de Salud y Disponibilidad por Equipo")
         
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            # NORMALIZAR REGISTRO_EVENTOS CON SUS COLUMNAS REALES
-            if not df_eventos.empty and 'equipo' in df_eventos.columns:
-                # Normalizamos las columnas de estado y tipo de evento
-                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
-                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
-
-                # Ordenar por fecha_hora descendente para obtener el registro más reciente
-                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
-                
-                # Filtrar solo eventos activos que NO estén resueltos/cerrados
-                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
-            else:
-                eventos_activos = pd.DataFrame()
-
-            # --- PANEL DE ALERTA RÁPIDA (EVENTOS EN REVISIÓN / ABIERTOS) ---
+            # 1. CARGA DE EVENTOS DESDE LA BASE DE DATOS
             try:
                 with engine.connect() as conn:
                     df_eventos = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
             except Exception:
                 df_eventos = pd.DataFrame()
 
+            # 2. NORMALIZAR Y FILTRAR EVENTOS ACTIVOS
             if not df_eventos.empty and 'equipo' in df_eventos.columns:
-                # Normalizamos las columnas de estado y tipo de evento
                 df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
                 df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
 
-                # Ordenar por fecha_hora descendente para obtener el registro más reciente
                 df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
-                
-                # Filtrar solo eventos activos que NO estén resueltos/cerrados
                 eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
             else:
                 eventos_activos = pd.DataFrame()
 
+            # 3. PANEL DE ALERTA RÁPIDA
             if not eventos_activos.empty:
                 eq_en_revision = eventos_activos[
                     eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
@@ -830,7 +814,7 @@ if opcion == "Dashboard & KPIs":
 
             st.divider()
 
-            # --- GRID DE TARJETAS ---
+            # 4. GRID DE TARJETAS
             cols_grid = st.columns(3)
             for idx, row in df_equipos.iterrows():
                 col_idx = idx % 3
