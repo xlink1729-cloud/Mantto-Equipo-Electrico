@@ -801,7 +801,7 @@ if opcion == "Dashboard & KPIs":
 
     # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
     tab_fleet, tab_radar, tab_scatter = st.tabs([
-        "🚨 Vista de Flota (Semáforo)", 
+        "🎛️ Estado de Equipos (Semáforo)", 
         "📐 Diagrama Fasorial (Vectores)", 
         "📈 Factor de Carga vs. Salud"
     ])
