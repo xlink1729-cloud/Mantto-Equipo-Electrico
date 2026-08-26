@@ -676,7 +676,7 @@ if opcion == "Dashboard & KPIs":
             st.markdown("<br>", unsafe_allow_html=True)
             btn_actualizar = st.button("🔄 Actualizar Datos", use_container_width=True)
 
-    # Cargar Datos desde Neon BD de forma segura
+    # Cargar Datos desde BD de forma segura
     try:
         with engine.connect() as conn:
             df_elec = pd.read_sql(
@@ -696,76 +696,75 @@ if opcion == "Dashboard & KPIs":
     # 2. CÁLCULO DE KPIS GLOBALES
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
 
-alertas_criticas = 0
-alertas_advertencia = 0
+    alertas_criticas = 0
+    alertas_advertencia = 0
 
-# Evaluar alertas eléctricas
-if not df_elec.empty and 'desbalance_i' in df_elec.columns:
-    alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
-    alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
+    # Evaluar alertas eléctricas
+    if not df_elec.empty and 'desbalance_i' in df_elec.columns:
+        alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
+        alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
 
-# Evaluar alertas termográficas (Suma en lugar de sobrescribir)
-if not df_termo.empty and 'estado' in df_termo.columns:
-    estado_upper = df_termo['estado'].astype(str).str.upper()
-    alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
-    alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
+    # Evaluar alertas termográficas
+    if not df_termo.empty and 'estado' in df_termo.columns:
+        estado_upper = df_termo['estado'].astype(str).str.upper()
+        alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
+        alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
 
-# Índice de Salud Estimado (0 - 100%)
-if total_equipos > 0:
-    # Penalización base por alerta ponderada entre el total de equipos
-    penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8)) / total_equipos
-    salud_global = max(0, min(100, int(100 - penalizacion)))
-else:
-    salud_global = 100
+    # Índice de Salud Estimado (0 - 100%)
+    if total_equipos > 0:
+        penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8)) / total_equipos
+        salud_global = max(0, min(100, int(100 - penalizacion)))
+    else:
+        salud_global = 100
 
-st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-# Render de Tarjetas KPI estilo Glassmorphism
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    # Render de Tarjetas KPI estilo Glassmorphism
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-with kpi1:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>Salud Global</div>
-            <div class='kpi-value'>{salud_global}%</div>
-            <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
-                {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    with kpi1:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Salud Global</div>
+                <div class='kpi-value'>{salud_global}%</div>
+                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
+                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
 
-with kpi2:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>Total de Equipos</div>
-            <div class='kpi-value'>{total_equipos}</div>
-            <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
-        </div>
-    """, unsafe_allow_html=True)
+    with kpi2:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Total de Equipos</div>
+                <div class='kpi-value'>{total_equipos}</div>
+                <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
+            </div>
+        """, unsafe_allow_html=True)
 
-with kpi3:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>Alertas Críticas</div>
-            <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
-            <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
-                {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    with kpi3:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Alertas Críticas</div>
+                <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
+                <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
+                    {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
 
-with kpi4:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>Advertencias</div>
-            <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
-            <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
-                {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    with kpi4:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Advertencias</div>
+                <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
+                <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
+                    {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
 
-st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
 
     # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
     tab_fleet, tab_radar, tab_scatter = st.tabs([
@@ -777,69 +776,67 @@ st.markdown("<br><br>", unsafe_allow_html=True)
     # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
         st.subheader("Estado de Salud por Equipo")
-    
-    if df_equipos.empty:
-        st.info("No hay equipos registrados en el catálogo.")
-    else:
-        cols_grid = st.columns(3)
-        for idx, row in df_equipos.iterrows():
-            col_idx = idx % 3
-            eq_code = row['codigo_equipo']
-            estatus_actual = row.get('estatus', 'Operativo')
-            
-            # 1. EVALUAR ESTATUS OPERATIVO DEL CATÁLOGO
-            if estatus_actual == "Standby":
-                st_color = "eq-border-warning"
-                badge_txt = "⏸️ Standby"
-            elif estatus_actual == "En Revisión":
-                st_color = "eq-border-warning"
-                badge_txt = "🔍 En Revisión"
-            elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
-                st_color = "eq-border-danger"
-                badge_txt = "🔴 Fuera de Servicio"
-            else:
-                # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE
-                st_color = "eq-border-ok"
-                badge_txt = "🟢 Normal"
+        
+        if df_equipos.empty:
+            st.info("No hay equipos registrados en el catálogo.")
+        else:
+            cols_grid = st.columns(3)
+            for idx, row in df_equipos.iterrows():
+                col_idx = idx % 3
+                eq_code = row['codigo_equipo']
+                estatus_actual = row.get('estatus', 'Operativo')
                 
-                if not df_elec.empty:
-                    eq_data = df_elec[df_elec['equipo'] == eq_code]
-                    if not eq_data.empty:
-                        last_desb = eq_data.iloc[0]['desbalance_i'] or 0
-                        if last_desb > 10.0:
-                            st_color = "eq-border-danger"
-                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                        elif last_desb >= 5.0:
-                            st_color = "eq-border-warning"
-                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+                # 1. EVALUAR ESTATUS OPERATIVO DEL CATÁLOGO
+                if estatus_actual == "Standby":
+                    st_color = "eq-border-warning"
+                    badge_txt = "⏸️ Standby"
+                elif estatus_actual == "En Revisión":
+                    st_color = "eq-border-warning"
+                    badge_txt = "🔍 En Revisión"
+                elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
+                    st_color = "eq-border-danger"
+                    badge_txt = "🔴 Fuera de Servicio"
+                else:
+                    # 2. SI ESTÁ OPERATIVO, EVALUAR DESBALANCE
+                    st_color = "eq-border-ok"
+                    badge_txt = "🟢 Normal"
+                    
+                    if not df_elec.empty:
+                        eq_data = df_elec[df_elec['equipo'] == eq_code]
+                        if not eq_data.empty:
+                            last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                            if last_desb > 10.0:
+                                st_color = "eq-border-danger"
+                                badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                            elif last_desb >= 5.0:
+                                st_color = "eq-border-warning"
+                                badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
-            with cols_grid[col_idx]:
-                st.markdown(f"""
-                    <div class='equipment-card {st_color}'>
-                        <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
-                        <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
-                        <div style='margin-top: 8px;'>
-                            <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
-                                Ubicación: {row.get('ubicacion', 'N/A')}
-                            </span>
-                            <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                with cols_grid[col_idx]:
+                    st.markdown(f"""
+                        <div class='equipment-card {st_color}'>
+                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
+                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                            <div style='margin-top: 8px;'>
+                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
+                                    Ubicación: {row.get('ubicacion', 'N/A')}
+                                </span>
+                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                            </div>
                         </div>
-                    </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
-    # TAB 2: DIAGRAMA FASORIAL / VECTORES (VOLTAJE Y CORRIENTE)
+    # TAB 2: DIAGRAMA FASORIAL / VECTORES
     with tab_radar:
         st.subheader("📐 Diagrama Fasorial Trifásico")
         
-        df_insp = obtener_datos()
+        df_insp = obtener_datos() if 'obtener_datos' in globals() else df_elec
         
         if df_insp is None or df_insp.empty:
             st.info("No hay registros de inspección disponibles.")
         else:
-            # Filtrar última lectura por equipo
             df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
             
-            # Layout de controles arriba del gráfico
             col_eq, col_tipo = st.columns([2, 1])
             
             with col_eq:
@@ -849,10 +846,8 @@ st.markdown("<br><br>", unsafe_allow_html=True)
             with col_tipo:
                 tipo_param = st.radio("Métrica a evaluar:", ["Corriente (A)", "Voltaje (V)"], horizontal=True)
             
-            # Extraer fila del equipo seleccionado
             datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
             
-            # Mapeo según la selección del usuario
             if tipo_param == "Corriente (A)":
                 f1 = float(datos_eq.get('i_a', datos_eq.get('i_l1', 0)))
                 f2 = float(datos_eq.get('i_b', datos_eq.get('i_l2', 0)))
@@ -866,11 +861,10 @@ st.markdown("<br><br>", unsafe_allow_html=True)
                 unidad = "V"
                 titulo_graf = f"Vectores de Voltaje - {equipo_sel}"
             
-            # Ángulos estándar trifásicos (0°, 120°, 240°)
             angulos = [0, 120, 240]
             magnitudes = [f1, f2, f3]
             fases = ['Fase A (L1)', 'Fase B (L2)', 'Fase C (L3)']
-            colores = ['#e74c3c', '#f1c40f', '#3498db']  # Rojo, Amarillo, Azul
+            colores = ['#e74c3c', '#f1c40f', '#3498db']
             
             fig_vector = go.Figure()
             
@@ -906,21 +900,19 @@ st.markdown("<br><br>", unsafe_allow_html=True)
             
             st.plotly_chart(fig_vector, use_container_width=True)
 
-    # TAB 3: SECCIÓN DE GRÁFICAS SEPARADAS Y DEDUPLICADAS
+    # TAB 3: ANÁLISIS DE PARÁMETROS OPERATIVOS
     with tab_scatter:
         st.subheader("📈 Análisis de Parámetros Operativos")
 
-        df_insp = obtener_datos()
+        df_insp = obtener_datos() if 'obtener_datos' in globals() else df_elec
         
         if df_insp is None or df_insp.empty:
             st.info("No hay registros de inspección disponibles.")
         else:
-            # 💡 DEDUPLICACIÓN: Tomar sólo la última lectura por equipo
             df_graficas = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
 
             col_g1, col_g2 = st.columns(2)
 
-            # --- GRÁFICA 1: FACTOR DE CARGA (%) ---
             with col_g1:
                 st.markdown("##### ⚡ Factor de Carga (%) por Equipo")
                 
@@ -941,7 +933,6 @@ st.markdown("<br><br>", unsafe_allow_html=True)
                 fig_fc.update_layout(showlegend=False, height=380)
                 st.plotly_chart(fig_fc, use_container_width=True)
 
-            # --- GRÁFICA 2: DESBALANCE DE CORRIENTE (%) ---
             with col_g2:
                 st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
                 
@@ -961,7 +952,7 @@ st.markdown("<br><br>", unsafe_allow_html=True)
                 
                 fig_desb.update_layout(showlegend=False, height=380)
                 st.plotly_chart(fig_desb, use_container_width=True)
-
+                
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
 # ---------------------------------------------------------
