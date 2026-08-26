@@ -695,73 +695,77 @@ if opcion == "Dashboard & KPIs":
 
     # 2. CÁLCULO DE KPIS GLOBALES
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
-    
-    # Evaluar alertas
-    alertas_criticas = 0
-    alertas_advertencia = 0
-    
-    if not df_elec.empty:
-        alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
-        alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
-    
-    if not df_termo.empty:
-        alertas_criticas = len(df_termo[df_termo['estado'].str.upper() == 'CRITICO'])
-        alertas_advertencia = len(df_termo[df_termo['estado'].str.upper() == 'ADVERTENCIA'])
 
-    # Índice de Salud Estimado (0 - 100%)
-    if total_equipos > 0:
-        salud_global = max(0, min(100, int(100 - (alertas_criticas * 15 + alertas_advertencia * 5) / total_equipos)))
-    else:
-        salud_global = 100
+alertas_criticas = 0
+alertas_advertencia = 0
 
-    st.markdown("<br>", unsafe_allow_html=True)
+# Evaluar alertas eléctricas
+if not df_elec.empty and 'desbalance_i' in df_elec.columns:
+    alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
+    alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
 
-    # Render de Tarjetas KPI estilo Glassmorphism
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+# Evaluar alertas termográficas (Suma en lugar de sobrescribir)
+if not df_termo.empty and 'estado' in df_termo.columns:
+    estado_upper = df_termo['estado'].astype(str).str.upper()
+    alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
+    alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
 
-    with kpi1:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Salud Global</div>
-                <div class='kpi-value'>{salud_global}%</div>
-                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
-                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
+# Índice de Salud Estimado (0 - 100%)
+if total_equipos > 0:
+    # Penalización base por alerta ponderada entre el total de equipos
+    penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8)) / total_equipos
+    salud_global = max(0, min(100, int(100 - penalizacion)))
+else:
+    salud_global = 100
 
-    with kpi2:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Total de Equipos</div>
-                <div class='kpi-value'>{total_equipos}</div>
-                <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
-            </div>
-        """, unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-    with kpi3:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Alertas Críticas</div>
-                <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
-                <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
-                    {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
+# Render de Tarjetas KPI estilo Glassmorphism
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-    with kpi4:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Advertencias</div>
-                <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
-                <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
-                    {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
+with kpi1:
+    st.markdown(f"""
+        <div class='kpi-card'>
+            <div class='kpi-title'>Salud Global</div>
+            <div class='kpi-value'>{salud_global}%</div>
+            <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
+                {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+with kpi2:
+    st.markdown(f"""
+        <div class='kpi-card'>
+            <div class='kpi-title'>Total de Equipos</div>
+            <div class='kpi-value'>{total_equipos}</div>
+            <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+with kpi3:
+    st.markdown(f"""
+        <div class='kpi-card'>
+            <div class='kpi-title'>Alertas Críticas</div>
+            <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
+            <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
+                {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
+
+with kpi4:
+    st.markdown(f"""
+        <div class='kpi-card'>
+            <div class='kpi-title'>Advertencias</div>
+            <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
+            <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
+                {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<br><br>", unsafe_allow_html=True)
 
     # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
     tab_fleet, tab_radar, tab_scatter = st.tabs([
@@ -1518,13 +1522,12 @@ elif opcion == "Registro de Eventos":
 
             if btn_evento:
                 fecha_hora_completa = datetime.combine(fecha_ev, hora_ev)
+                usuario_actual = st.session_state.get("usuario_actual", "Sistema")
 
                 q_ins_ev = text("""
                     INSERT INTO registro_eventos (fecha_hora, equipo, tipo_evento, severidad, descripcion, accion_tomada, estatus, reportado_por)
                     VALUES (:fh, :eq, :te, :sev, :desc, :acc, :est, :rep);
                 """)
-                
-                usuario_actual = st.session_state.get("usuario_actual", "Sistema")
 
                 params_ev = {
                     "fh": fecha_hora_completa,
@@ -1537,13 +1540,14 @@ elif opcion == "Registro de Eventos":
                     "rep": usuario_actual
                 }
 
+                # Mapeo de estatus del evento al estatus del catálogo de equipos
+                estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
+
                 q_upd_equipo = text("""
                     UPDATE catalogo_equipos 
                     SET estatus = :est 
                     WHERE TRIM(codigo_equipo) = TRIM(:eq);
                 """)
-                
-                db_session.execute(q_upd_equipo, {"est": nuevo_estatus, "eq": codigo_equipo_seleccionado})
 
                 try:
                     with engine.begin() as conn:
@@ -1647,9 +1651,9 @@ elif opcion == "Registro de Eventos":
 
                                     estado_equipo = "Operativo" if nuevo_estatus == "Resuelto" else nuevo_estatus
                                     q_upd_eq_close = text("""
-                                        UPDATE equipos 
-                                        SET estado = :est 
-                                        WHERE codigo_equipo = :eq;
+                                        UPDATE catalogo_equipos 
+                                        SET estatus = :est 
+                                        WHERE TRIM(codigo_equipo) = TRIM(:eq);
                                     """)
 
                                     try:
@@ -1661,7 +1665,7 @@ elif opcion == "Registro de Eventos":
                                             })
                                             conn.execute(q_upd_eq_close, {
                                                 "est": estado_equipo, 
-                                                "eq": evt_registro['equipo']
+                                                "eq": str(evt_registro['equipo']).strip()
                                             })
                                             
                                         st.success(f"✅ Evento #{id_evt_sel} cerrado y equipo actualizado a '{estado_equipo}'.")
@@ -1720,9 +1724,9 @@ elif opcion == "Registro de Eventos":
                             """)
 
                             q_upd_eq_cat = text("""
-                                UPDATE equipos
-                                SET estado = :est
-                                WHERE codigo_equipo = :eq;
+                                UPDATE catalogo_equipos
+                                SET estatus = :est
+                                WHERE TRIM(codigo_equipo) = TRIM(:eq);
                             """)
 
                             estado_cat = "Operativo" if edit_est_ev == "Resuelto" else edit_est_ev
@@ -1757,17 +1761,16 @@ elif opcion == "Registro de Eventos":
                     if st.button("❌ Confirmar Eliminación", key=f"del_evt_{id_evt_sel}"):
                         q_del_evt = text("DELETE FROM registro_eventos WHERE id = :id;")
                         
-                        # Al eliminar el evento, devolvemos el equipo a estatus Operativo
                         q_upd_eq_del = text("""
-                            UPDATE equipos 
-                            SET estado = 'Operativo' 
-                            WHERE codigo_equipo = :eq;
+                            UPDATE catalogo_equipos 
+                            SET estatus = 'Operativo' 
+                            WHERE TRIM(codigo_equipo) = TRIM(:eq);
                         """)
                         
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_evt, {"id": int(id_evt_sel)})
-                                conn.execute(q_upd_eq_del, {"eq": str(evt_registro['equipo'])})
+                                conn.execute(q_upd_eq_del, {"eq": str(evt_registro['equipo']).strip()})
 
                             st.success(f"✅ Evento #{id_evt_sel} eliminado y equipo reestablecido a 'Operativo'.")
                             st.rerun()
