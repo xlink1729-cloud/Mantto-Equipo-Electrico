@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 DUMMY_HASH = bcrypt.hashpw(b"dummy_password", bcrypt.gensalt(rounds=12)).decode('utf-8')
 
 st.set_page_config(
-    page_title="Mantenimiento Bombas & Motores",f
+    page_title="Mantenimiento Bombas & Motores",
     page_icon="🌊",
     layout="wide"
 )
