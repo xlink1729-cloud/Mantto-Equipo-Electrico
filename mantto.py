@@ -795,8 +795,26 @@ if opcion == "Dashboard & KPIs":
                 eventos_activos = pd.DataFrame()
 
             # --- PANEL DE ALERTA RÁPIDA (EVENTOS EN REVISIÓN / ABIERTOS) ---
+            try:
+                with engine.connect() as conn:
+                    df_eventos = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
+            except Exception:
+                df_eventos = pd.DataFrame()
+
+            if not df_eventos.empty and 'equipo' in df_eventos.columns:
+                # Normalizamos las columnas de estado y tipo de evento
+                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
+                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
+
+                # Ordenar por fecha_hora descendente para obtener el registro más reciente
+                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
+                
+                # Filtrar solo eventos activos que NO estén resueltos/cerrados
+                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
+            else:
+                eventos_activos = pd.DataFrame()
+
             if not eventos_activos.empty:
-                # Buscar eventos activos cuyo estatus o tipo contenga "revis"
                 eq_en_revision = eventos_activos[
                     eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
                     eventos_activos['tipo_norm'].str.contains('revis', na=False)
@@ -818,11 +836,9 @@ if opcion == "Dashboard & KPIs":
                 col_idx = idx % 3
                 eq_code = row['codigo_equipo']
                 
-                # VALORES POR DEFECTO
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
 
-                # 1. EVALUAR EVENTOS ACTIVOS DE REGISTRO_EVENTOS (PRIORIDAD ALTA)
                 ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
 
                 if not ev_eq.empty:
@@ -840,7 +856,6 @@ if opcion == "Dashboard & KPIs":
                         st_color = "eq-border-danger"
                         badge_txt = "🔴 Fuera de Servicio"
 
-                # 2. EVALUAR DESBALANCE ELÉCTRICO SI NO HAY EVENTO ADMINISTRATIVO ACTIVO
                 if badge_txt == "🟢 Normal" and not df_elec.empty:
                     eq_data = df_elec[df_elec['equipo'] == eq_code]
                     if not eq_data.empty:
@@ -852,7 +867,6 @@ if opcion == "Dashboard & KPIs":
                             st_color = "eq-border-warning"
                             badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
-                # RENDER DE LA TARJETA
                 with cols_grid[col_idx]:
                     st.markdown(f"""
                         <div class='equipment-card {st_color}'>
@@ -2163,61 +2177,32 @@ if opcion == "Gestión de Usuarios":
         st.subheader("Administración de Cuentas")
         try:
             with engine.connect() as conn:
-                df_usuarios = pd.read_sql(
-                    text("SELECT id, username, nombre, rol, intentos_fallidos, bloqueado_hasta FROM usuarios ORDER BY id ASC;"),
+                df_usr = pd.read_sql(
+                    text("SELECT id, username, nombre, rol, intentos_fallidos, bloqueado_hasta FROM usuarios ORDER BY id ASC;"), 
                     conn
                 )
-
-            if not df_usuarios.empty:
-                # Mostrar tabla con estado de bloqueo
-                df_usuarios["Estado"] = df_usuarios["bloqueado_hasta"].apply(
-                    lambda x: "🚫 Bloqueado" if pd.notnull(x) and datetime.now() < x else "🟢 Activo"
-                )
+            
+            if df_usr.empty:
+                st.info("No hay usuarios registrados.")
+            else:
+                st.dataframe(df_usr, use_container_width=True)
                 
-                st.dataframe(
-                    df_usuarios[["id", "username", "nombre", "rol", "Estado", "intentos_fallidos"]],
-                    use_container_width=True
-                )
-
                 st.markdown("---")
-                col_acc1, col_acc2 = st.columns(2)
+                st.subheader("🛠️ Desbloqueo / Restablecimiento de Cuentas")
+                
+                usr_bloqueados = df_usr[df_usr['intentos_fallidos'] > 0]
+                if not usr_bloqueados.empty:
+                    u_unblock = st.selectbox("Seleccionar usuario a desbloquear:", usr_bloqueados['username'].tolist())
+                    if st.button("🔓 Restablecer Intentos / Desbloquear"):
+                        with engine.begin() as conn:
+                            conn.execute(
+                                text("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE username = :u;"),
+                                {"u": u_unblock}
+                            )
+                        st.success(f"✅ Usuario **{u_unblock}** desbloqueado correctamente.")
+                        st.rerun()
+                else:
+                    st.info("🟢 No hay usuarios bloqueados actualmente.")
 
-                # Accion: Desbloquear o Restablecer Pass
-                with col_acc1:
-                    st.markdown("##### 🔓 Desbloquear / Restablecer Contraseña")
-                    user_select = st.selectbox("Seleccionar Usuario", df_usuarios["username"].tolist(), key="sb_user_reset")
-                    new_pass_admin = st.text_input("Nueva Contraseña", type="password", key="pass_reset_admin")
-                    
-                    if st.button("Actualizar Contraseña y Desbloquear"):
-                        if not new_pass_admin or len(new_pass_admin) < 8:
-                            st.warning("⚠️ Ingresa una contraseña válida de al menos 8 caracteres.")
-                        else:
-                            with engine.begin() as conn:
-                                pass_h = hash_password(new_pass_admin)
-                                conn.execute(
-                                    text("""
-                                        UPDATE usuarios 
-                                        SET password_hash = :p, intentos_fallidos = 0, bloqueado_hasta = NULL 
-                                        WHERE username = :u;
-                                    """),
-                                    {"p": pass_h, "u": user_select}
-                                )
-                                st.success(f"✅ Contraseña restablecida y usuario **{user_select}** desbloqueado.")
-                                st.rerun()
-
-                # Accion: Eliminar Usuario
-                with col_acc2:
-                    st.markdown("##### 🗑️ Eliminar Usuario")
-                    user_delete = st.selectbox("Usuario a Eliminar", df_usuarios["username"].tolist(), key="sb_user_del")
-                    
-                    if st.button("⚠️ Eliminar Usuario", type="primary"):
-                        if user_delete == st.session_state.get("username_actual"):
-                            st.error("❌ No puedes eliminar tu propia cuenta en sesión.")
-                        else:
-                            with engine.begin() as conn:
-                                conn.execute(text("DELETE FROM usuarios WHERE username = :u;"), {"u": user_delete})
-                                st.success(f"Usuario **{user_delete}** eliminado.")
-                                st.rerun()
-
-        except Exception as e:
-            st.error(f"Error al cargar la lista de usuarios: {e}")
+        except Exception as err:
+            st.error(f"Error al consultar la tabla de usuarios: {err}")
