@@ -432,6 +432,15 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
 # FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
 # ---------------------------------------------------------
 
+# La función debe declararse fuera del condicional 'elif'
+def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
+    """Calcula el porcentaje de desbalance según el estándar NEMA."""
+    promedio = (v1 + v2 + v3) / 3.0
+    if promedio == 0:
+        return 0.0
+    max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
+    return round((max_desviacion / promedio) * 100, 2)
+
 def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha") -> pd.DataFrame:
     """Despliega widgets de filtrado rápido y devuelve el DataFrame filtrado."""
     if df.empty:
@@ -1168,16 +1177,6 @@ elif opcion == "Catálogo de Equipos":
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
 # ---------------------------------------------------------
-
-# La función debe declararse fuera del condicional 'elif'
-def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
-    """Calcula el porcentaje de desbalance según el estándar NEMA."""
-    promedio = (v1 + v2 + v3) / 3.0
-    if promedio == 0:
-        return 0.0
-    max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
-    return round((max_desviacion / promedio) * 100, 2)
-
 
 elif opcion == "Nueva Inspección Eléctrica":
     st.title("📋 Lectura Electromecánica en Campo")
