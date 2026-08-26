@@ -1535,12 +1535,12 @@ elif opcion == "Registro de Eventos":
                 }
 
                 q_upd_equipo = text("""
-                    UPDATE equipos 
-                    SET estado = :est 
+                    UPDATE catalogo_equipos 
+                    SET estatus = :est 
                     WHERE TRIM(codigo_equipo) = TRIM(:eq);
                 """)
                 
-                estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
+                db_session.execute(q_upd_equipo, {"est": nuevo_estatus, "eq": codigo_equipo_seleccionado})
 
                 try:
                     with engine.begin() as conn:
