@@ -787,6 +787,9 @@ if opcion == "Dashboard & KPIs":
             if estatus_actual == "Standby":
                 st_color = "eq-border-warning"
                 badge_txt = "⏸️ Standby"
+            elif estatus_actual == "En Revisión":
+                st_color = "eq-border-warning"
+                badge_txt = "🔍 En Revisión"
             elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
                 st_color = "eq-border-danger"
                 badge_txt = "🔴 Fuera de Servicio"
