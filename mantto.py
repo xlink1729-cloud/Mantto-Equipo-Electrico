@@ -650,6 +650,7 @@ if opcion == "Dashboard & KPIs":
         .status-ok { background-color: #dcfce7; color: #166534; }
         .status-warning { background-color: #fef9c3; color: #854d0e; }
         .status-danger { background-color: #fee2e2; color: #991b1b; }
+        .status-info { background-color: #e0f2fe; color: #0369a1; }
         
         .equipment-card {
             background: rgba(255, 255, 255, 0.5);
@@ -662,6 +663,7 @@ if opcion == "Dashboard & KPIs":
         .eq-border-ok { border-left-color: #22c55e !important; }
         .eq-border-warning { border-left-color: #eab308 !important; }
         .eq-border-danger { border-left-color: #ef4444 !important; }
+        .eq-border-standby { border-left-color: #0284c7 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -693,8 +695,23 @@ if opcion == "Dashboard & KPIs":
         st.error(f"Error al cargar datos del Dashboard: {e}")
         df_elec, df_termo, df_equipos = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # 2. CÁLCULO DE KPIS GLOBALES
+    # 2. CÁLCULO DE KPIS GLOBALES Y ESTADOS DE CATÁLOGO
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
+    equipos_standby = 0
+    equipos_fuera = 0
+
+    # Detección de columna de estado en catálogo (soporta estatus, estado, estatus_operativo)
+    col_estado_cat = None
+    if not df_equipos.empty:
+        for c in ['estatus', 'estado', 'estatus_operativo', 'condicion']:
+            if c in df_equipos.columns:
+                col_estado_cat = c
+                break
+
+    if col_estado_cat and not df_equipos.empty:
+        df_equipos['cat_estado_norm'] = df_equipos[col_estado_cat].astype(str).str.lower().str.strip()
+        equipos_standby = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('standby|reserva|espera', na=False)])
+        equipos_fuera = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('fuera|baja|inactivo|paro', na=False)])
 
     alertas_criticas = 0
     alertas_advertencia = 0
@@ -712,15 +729,15 @@ if opcion == "Dashboard & KPIs":
 
     # Índice de Salud Estimado (0 - 100%)
     if total_equipos > 0:
-        penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8)) / total_equipos
+        penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
         salud_global = max(0, min(100, int(100 - penalizacion)))
     else:
         salud_global = 100
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Render de Tarjetas KPI estilo Glassmorphism
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    # Render de Tarjetas KPI estilo Glassmorphism (5 Columnas)
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
     with kpi1:
         st.markdown(f"""
@@ -736,30 +753,39 @@ if opcion == "Dashboard & KPIs":
     with kpi2:
         st.markdown(f"""
             <div class='kpi-card'>
-                <div class='kpi-title'>Total de Equipos</div>
+                <div class='kpi-title'>Total Flota</div>
                 <div class='kpi-value'>{total_equipos}</div>
-                <span class='kpi-status status-ok'>⚙️ Monitoreados</span>
+                <span class='kpi-status status-ok'>⚙️ Registrados</span>
             </div>
         """, unsafe_allow_html=True)
 
     with kpi3:
         st.markdown(f"""
             <div class='kpi-card'>
-                <div class='kpi-title'>Alertas Críticas</div>
-                <div class='kpi-value' style='color: #ef4444;'>{alertas_criticas}</div>
-                <span class='kpi-status {"status-danger" if alertas_criticas > 0 else "status-ok"}'>
-                    {"🔴 Acción Inmediata" if alertas_criticas > 0 else "🟢 Ninguna"}
-                </span>
+                <div class='kpi-title'>Standby / Reserva</div>
+                <div class='kpi-value' style='color: #0284c7;'>{equipos_standby}</div>
+                <span class='kpi-status status-info'>⏸️ Disponibles</span>
             </div>
         """, unsafe_allow_html=True)
 
     with kpi4:
         st.markdown(f"""
             <div class='kpi-card'>
-                <div class='kpi-title'>Advertencias</div>
-                <div class='kpi-value' style='color: #eab308;'>{alertas_advertencia}</div>
-                <span class='kpi-status {"status-warning" if alertas_advertencia > 0 else "status-ok"}'>
-                    {"🟡 Bajo Observación" if alertas_advertencia > 0 else "🟢 Ninguna"}
+                <div class='kpi-title'>Fuera de Servicio</div>
+                <div class='kpi-value' style='color: #ef4444;'>{equipos_fuera}</div>
+                <span class='kpi-status {"status-danger" if equipos_fuera > 0 else "status-ok"}'>
+                    {"🔴 Inactivos" if equipos_fuera > 0 else "🟢 Ninguno"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi5:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Alertas / Críticos</div>
+                <div class='kpi-value' style='color: #eab308;'>{alertas_criticas + alertas_advertencia}</div>
+                <span class='kpi-status {"status-warning" if (alertas_criticas + alertas_advertencia) > 0 else "status-ok"}'>
+                    {"⚠️ Pendientes" if (alertas_criticas + alertas_advertencia) > 0 else "🟢 Sin Alertas"}
                 </span>
             </div>
         """, unsafe_allow_html=True)
@@ -814,15 +840,26 @@ if opcion == "Dashboard & KPIs":
 
             st.divider()
 
-            # 4. GRID DE TARJETAS
+            # 4. GRID DE TARJETAS DE EQUIPOS
             cols_grid = st.columns(3)
             for idx, row in df_equipos.iterrows():
                 col_idx = idx % 3
                 eq_code = row['codigo_equipo']
                 
+                # Estado Base por Catálogo
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
 
+                if col_estado_cat:
+                    estado_base = str(row.get(col_estado_cat, '')).lower().strip()
+                    if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
+                        st_color = "eq-border-standby"
+                        badge_txt = "⏸️ Standby"
+                    elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
+                        st_color = "eq-border-danger"
+                        badge_txt = "🔴 Fuera de Servicio"
+
+                # Sobrescribir estado si existe Evento Activo en la Bitácora
                 ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
 
                 if not ev_eq.empty:
@@ -840,6 +877,7 @@ if opcion == "Dashboard & KPIs":
                         st_color = "eq-border-danger"
                         badge_txt = "🔴 Fuera de Servicio"
 
+                # Evaluación por desbalance si se encuentra en Normal
                 if badge_txt == "🟢 Normal" and not df_elec.empty:
                     eq_data = df_elec[df_elec['equipo'] == eq_code]
                     if not eq_data.empty:
