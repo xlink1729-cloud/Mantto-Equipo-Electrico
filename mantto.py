@@ -553,17 +553,24 @@ def obtener_datos():
         
     return df
 
-@st.cache_data(ttl=300)
-def obtener_termografias():
-    """Consulta termografías con vectorización aplicada."""
-    query = """
-    SELECT i.*, e.corriente_nominal 
-    FROM inspecciones_termograficas i
-    LEFT JOIN catalogo_equipos e ON i.equipo_id = e.id
-    ORDER BY i.fecha_inspeccion DESC, i.id DESC;
-    """
-    df = pd.read_sql_query(query, con=engine)
-    return optimizar_dataframe_inspecciones(df)
+@st.cache_data
+def obtener_termografias(fecha_i=None, fecha_f=None):
+    try:
+        with engine.connect() as conn:
+            if fecha_i and fecha_f:
+                query = text("""
+                    SELECT * FROM inspecciones_termograficas 
+                    WHERE fecha_inspeccion BETWEEN :i AND :f 
+                    ORDER BY fecha_inspeccion DESC;
+                """)
+                df = pd.read_sql(query, conn, params={"i": fecha_i, "f": fecha_f})
+            else:
+                query = text("SELECT * FROM inspecciones_termograficas ORDER BY fecha_inspeccion DESC;")
+                df = pd.read_sql(query, conn)
+            return df
+    except Exception as e:
+        st.warning(f"No se pudieron cargar las inspecciones termográficas: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def obtener_eventos():
