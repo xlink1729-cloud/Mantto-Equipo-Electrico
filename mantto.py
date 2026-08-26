@@ -773,45 +773,62 @@ if opcion == "Dashboard & KPIs":
         "📈 Factor de Carga vs. Salud"
     ])
 
-    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
+# TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
-        st.subheader("Estado de Salud por Equipo")
+        st.subheader("Estado de Salud y Disponibilidad por Equipo")
         
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
+            # --- PANEL DE ALERTA RÁPIDA DE REVISIÓN ---
+            # Normalizamos la columna para evitar fallos por mayúsculas/espacios
+            df_equipos['estatus_clean'] = df_equipos['estatus'].astype(str).str.strip().str.lower()
+            equipos_revision = df_equipos[df_equipos['estatus_clean'].isin(['en revisión', 'revisión', 'revision'])]
+
+            if not equipos_revision.empty:
+                lista_codigos = ", ".join(equipos_revision['codigo_equipo'].tolist())
+                st.warning(f"🔍 **Equipos en Revisión ({len(equipos_revision)}):** {lista_codigos}")
+            else:
+                st.info("ℹ️ Actualmente no hay ningún equipo marcado 'En Revisión'.")
+
+            st.divider()
+
+            # --- GRID DE TARJETAS ---
             cols_grid = st.columns(3)
             for idx, row in df_equipos.iterrows():
                 col_idx = idx % 3
                 eq_code = row['codigo_equipo']
-                estatus_actual = str(row.get('estatus', 'Operativo')).strip()
+                estatus_raw = str(row.get('estatus', '')).strip().lower()
                 
-                # 1. EVALUAR ALERTAS ELÉCTRICAS PRIMERO
+                # VARIABLES POR DEFECTO
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
-                
-                if not df_elec.empty:
-                    eq_data = df_elec[df_elec['equipo'] == eq_code]
-                    if not eq_data.empty:
-                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                        if last_desb > 10.0:
-                            st_color = "eq-border-danger"
-                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                        elif last_desb >= 5.0:
-                            st_color = "eq-border-warning"
-                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
-                # 2. SOBREESCRIBIR SI TIENE UN ESTATUS ADMINISTRATIVO ESPECÍFICO
-                if estatus_actual in ["En Revisión", "Revisión", "Revision"]:
+                # 1. EVALUAR ESTATUS ADMINISTRATIVO PRIMERO (PRIORIDAD ALTA)
+                if estatus_raw in ["en revisión", "revisión", "revision"]:
                     st_color = "eq-border-warning"
                     badge_txt = "🔍 En Revisión"
-                elif estatus_actual == "Standby":
+                elif estatus_raw == "standby":
                     st_color = "eq-border-warning"
                     badge_txt = "⏸️ Standby"
-                elif estatus_actual in ["Fuera de Servicio", "En Mantenimiento"]:
+                elif estatus_raw in ["fuera de servicio", "en mantenimiento"]:
                     st_color = "eq-border-danger"
                     badge_txt = "🔴 Fuera de Servicio"
+                
+                # 2. SI ESTÁ OPERATIVO O NORMAL, EVALUAR DESBALANCE ELÉCTRICO
+                else:
+                    if not df_elec.empty:
+                        eq_data = df_elec[df_elec['equipo'] == eq_code]
+                        if not eq_data.empty:
+                            last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                            if last_desb > 10.0:
+                                st_color = "eq-border-danger"
+                                badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                            elif last_desb >= 5.0:
+                                st_color = "eq-border-warning"
+                                badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
+                # RENDER DE LA TARJETA
                 with cols_grid[col_idx]:
                     st.markdown(f"""
                         <div class='equipment-card {st_color}'>
