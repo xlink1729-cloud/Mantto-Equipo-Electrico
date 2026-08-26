@@ -783,7 +783,7 @@ if opcion == "Dashboard & KPIs":
             # --- PANEL DE ALERTA RÁPIDA DE REVISIÓN ---
             # Normalizamos la columna para evitar fallos por mayúsculas/espacios
             df_equipos['estatus_clean'] = df_equipos['estatus'].astype(str).str.strip().str.lower()
-            equipos_revision = df_equipos[df_equipos['estatus_clean'].isin(['en revisión', 'revisión', 'revision'])]
+            equipos_revision = df_equipos[df_equipos['estatus_clean'].isin(['en Revisión', 'Revisión', 'Revision'])]
 
             if not equipos_revision.empty:
                 lista_codigos = ", ".join(equipos_revision['codigo_equipo'].tolist())
