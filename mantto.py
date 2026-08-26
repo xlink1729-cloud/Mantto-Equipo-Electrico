@@ -1206,7 +1206,7 @@ elif opcion == "Nueva Inspección Eléctrica":
 
         with col_f2:
             tipo_equipo = st.selectbox("Tipo de Motor", ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"])
-            tecnico = st.text_input("Técnico Inspector", value=st.session_state.usuario_actual)
+            tecnico = st.text_input("Técnico Inspector", value=st.session_state.get("usuario_actual", "Técnico"))
 
         st.markdown("---")
         st.markdown("#### ⚡ Voltajes Fase - Fase ($V_{FF}$)")
@@ -1397,6 +1397,8 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                 VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs, :tec);
                 """)
 
+                tecnico_actual = st.session_state.get("usuario_actual", "Sistema")
+
                 try:
                     with engine.begin() as conn:
                         for item in componentes_datos:
@@ -1432,7 +1434,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
                                 "delta": float(delta),
                                 "est": estado,
                                 "obs": item["obs"],
-                                "tec": str(st.session_state.usuario_actual)
+                                "tec": str(tecnico_actual)
                             }
 
                             conn.execute(q_ins_termo, params)
@@ -1446,13 +1448,15 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
         if df_termo.empty:
             st.info("No hay lecturas termográficas en la base de datos.")
         else:
+            # 🟢 Filtro unificado
+            df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion")
+            
             eq_termo_filtro = st.selectbox("Filtrar por Equipo:", ["Todos"] + list(df_termo["equipo_id"].unique()))
             if eq_termo_filtro != "Todos":
-                df_mostrar_termo = df_termo[df_termo["equipo_id"] == eq_termo_filtro]
-            else:
-                df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion")
+                df_termo_filtrado = df_termo_filtrado[df_termo_filtrado["equipo_id"] == eq_termo_filtro]
+                
             st.dataframe(df_termo_filtrado, use_container_width=True)
-
+            
 # ---------------------------------------------------------
 # 5. REGISTRO DE EVENTOS
 # ---------------------------------------------------------
@@ -1514,6 +1518,8 @@ elif opcion == "Registro de Eventos":
                 VALUES (:fh, :eq, :te, :sev, :desc, :acc, :est, :rep);
                 """)
                 
+                usuario_actual = st.session_state.get("usuario_actual", "Sistema")
+
                 params_ev = {
                     "fh": fecha_hora_completa,
                     "eq": str(equipo_ev).strip(),
@@ -1522,7 +1528,7 @@ elif opcion == "Registro de Eventos":
                     "desc": descripcion_ev,
                     "acc": accion_ev,
                     "est": estatus_ev,
-                    "rep": st.session_state.usuario_actual
+                    "rep": usuario_actual
                 }
 
                 try:
@@ -1540,29 +1546,25 @@ elif opcion == "Registro de Eventos":
         if df_eventos.empty:
             st.info("Aún no hay eventos ni incidentes registrados.")
         else:
-            # 1. Aplicar filtros generales (Fechas, búsqueda global y ordenamiento)
             df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora")
 
-            # 2. Filtros específicos de Bitácora (se obtienen opciones del DF base)
             f_col1, f_col2 = st.columns(2)
             with f_col1:
                 filtro_eq = st.multiselect(
                     "Filtrar por Equipo:", 
                     df_eventos["equipo"].dropna().unique()
                 )
-                with f_col2:
-                    filtro_sev = st.multiselect(
-                        "Filtrar por Severidad:", 
-                        df_eventos["severidad"].dropna().unique()
-                    )
+            with f_col2:
+                filtro_sev = st.multiselect(
+                    "Filtrar por Severidad:", 
+                    df_eventos["severidad"].dropna().unique()
+                )
 
-            # 3. Aplicar los filtros secundarios sobre el DF filtrado
             if filtro_eq:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
             if filtro_sev:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
 
-            # 4. Renderizar tabla y botón de descarga
             st.dataframe(df_evt_filtered, use_container_width=True)
 
             csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
@@ -1616,8 +1618,9 @@ elif opcion == "Registro de Eventos":
                                 if not accion_reconexion.strip():
                                     st.warning("⚠️ Debes ingresar el detalle de la acción realizada.")
                                 else:
+                                    usuario_actual = st.session_state.get("usuario_actual", "Sistema")
                                     accion_previa = str(evt_registro['accion_tomada'] or "").strip()
-                                    registro_cierre = f"[{fecha_cierre.strftime('%d/%m/%Y')} - {st.session_state.usuario_actual}]: {accion_reconexion.strip()}"
+                                    registro_cierre = f"[{fecha_cierre.strftime('%d/%m/%Y')} - {usuario_actual}]: {accion_reconexion.strip()}"
                                     accion_final = f"{accion_previa}\n\n{registro_cierre}".strip()
 
                                     q_close_evt = text("""
