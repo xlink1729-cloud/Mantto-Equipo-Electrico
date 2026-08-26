@@ -1045,6 +1045,9 @@ elif opcion == "Catálogo de Equipos":
                                 "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
                                 "obs": obs_eq
                             })
+
+                        st.cache_data.clear()
+                        
                         st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
                         st.rerun()
                     except Exception as e:
@@ -1534,7 +1537,7 @@ elif opcion == "Registro de Eventos":
                 q_upd_equipo = text("""
                     UPDATE equipos 
                     SET estado = :est 
-                    WHERE codigo_equipo = :eq;
+                    WHERE TRIM(codigo_equipo) = TRIM(:eq);
                 """)
                 
                 estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
