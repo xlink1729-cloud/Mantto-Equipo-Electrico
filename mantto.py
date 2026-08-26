@@ -432,6 +432,49 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
 # FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
 # ---------------------------------------------------------
 
+def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha") -> pd.DataFrame:
+    """Despliega widgets de filtrado rápido y devuelve el DataFrame filtrado."""
+    if df.empty:
+        return df
+
+    c1, c2, c3 = st.columns(3)
+
+    # 1. Filtro por Equipo
+    col_equipo = "equipo" if "equipo" in df.columns else ("codigo_equipo" if "codigo_equipo" in df.columns else None)
+    if col_equipo:
+        lista_equipos = ["Todos"] + sorted(list(df[col_equipo].dropna().unique()))
+        equipo_sel = c1.selectbox(f"Filtrar por Equipo:", lista_equipos, key=f"f_eq_{col_fecha}")
+        if equipo_sel != "Todos":
+            df = df[df[col_equipo] == equipo_sel]
+
+    # 2. Filtro por Estado / Nivel de Riesgo (si existe en la tabla)
+    col_estado = "estado" if "estado" in df.columns else ("nivel_alerta" if "nivel_alerta" in df.columns else None)
+    if col_estado:
+        lista_estados = ["Todos"] + sorted(list(df[col_estado].dropna().unique()))
+        estado_sel = c2.selectbox(f"Filtrar por Estado:", lista_estados, key=f"f_est_{col_fecha}")
+        if estado_sel != "Todos":
+            df = df[df[col_estado] == estado_sel]
+
+    # 3. Filtro por Rango de Fechas
+    if col_fecha in df.columns:
+        df[col_fecha] = pd.to_datetime(df[col_fecha])
+        fecha_min = df[col_fecha].min().date()
+        fecha_max = df[col_fecha].max().date()
+
+        rango_fechas = c3.date_input(
+            "Rango de Fechas:",
+            value=(fecha_min, fecha_max),
+            min_value=fecha_min,
+            max_value=fecha_max,
+            key=f"f_fcha_{col_fecha}"
+        )
+
+        if len(rango_fechas) == 2:
+            f_inicio, f_fin = rango_fechas
+            df = df[(df[col_fecha].dt.date >= f_inicio) & (df[col_fecha].dt.date <= f_fin)]
+
+    return df
+
 def optimizar_dataframe_inspecciones(df: pd.DataFrame) -> pd.DataFrame:
     """Aplica cálculos vectorizados para termografía."""
     if df.empty:
