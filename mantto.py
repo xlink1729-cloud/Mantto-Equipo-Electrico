@@ -431,18 +431,37 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
 # ---------------------------------------------------------
-def calcular_desbalance(v1, v2, v3):
-    promedio = (v1 + v2 + v3) / 3.0
-    if promedio == 0:
-        return 0.0
-    max_desviacion = max(abs(v1 - promedio), abs(v2 - promedio), abs(v3 - promedio))
-    return round((max_desviacion / promedio) * 100, 2)
 
-def calcular_potencia_kw(i_prom, v_prom=440.0, fp=0.85, eficiencia=0.90):
-    p_kw = (np.sqrt(3) * v_prom * i_prom * fp * eficiencia) / 1000.0
-    return round(p_kw, 2)
+def optimizar_dataframe_inspecciones(df: pd.DataFrame) -> pd.DataFrame:
+    """Aplica cálculos vectorizados para termografía."""
+    if df.empty:
+        return df
 
+    spot_cols = ['spot_1', 'spot_2', 'spot_3']
+    for col in spot_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(0)
+
+    spots_matrix = df[['spot_1', 'spot_2', 'spot_3']].values
+    promedios = np.mean(spots_matrix, axis=1)
+    promedios_safe = np.where(promedios == 0, np.nan, promedios)
+
+    desviaciones = np.abs(spots_matrix - promedios[:, np.newaxis])
+    max_desviaciones = np.max(desviaciones, axis=1)
+
+    df['desbalance_max'] = (max_desviaciones / promedios_safe) * 100
+    df['desbalance_max'] = df['desbalance_max'].fillna(0).round(2)
+
+    if 'corriente_medida' in df.columns and 'corriente_nominal' in df.columns:
+        corr_nominal_safe = np.where(df['corriente_nominal'] == 0, np.nan, df['corriente_nominal'])
+        df['factor_carga'] = (df['corriente_medida'] / corr_nominal_safe) * 100
+        df['factor_carga'] = df['factor_carga'].fillna(0).round(2)
+
+    return df
+
+@st.cache_data(ttl=300)
 def obtener_datos():
+    """Consulta e inspecciones de bombas con cálculos totalmente vectorizados."""
     query = """
     SELECT 
         i.*,
@@ -456,26 +475,52 @@ def obtener_datos():
     
     if not df.empty:
         df['equipo'] = df['equipo'].astype(str).str.strip()
+        
+        # Promedios vectorizados
         df['i_promedio'] = (df['i_a'] + df['i_b'] + df['i_c']) / 3.0
         df['v_promedio'] = (df['v_ab'] + df['v_bc'] + df['v_ca']) / 3.0
         
-        fla_ref = df['corriente_nominal_cat'].apply(lambda x: x if pd.notnull(x) and x > 0 else 65.0)
+        # Factor de carga vectorizado
+        fla_ref = np.where(
+            (df['corriente_nominal_cat'].notnull()) & (df['corriente_nominal_cat'] > 0),
+            df['corriente_nominal_cat'],
+            65.0
+        )
         df['factor_carga'] = ((df['i_promedio'] / fla_ref) * 100).round(2)
-        df['desbalance_i'] = df.apply(lambda r: calcular_desbalance(r['i_a'], r['i_b'], r['i_c']), axis=1)
-        df['potencia_kw'] = df.apply(lambda r: calcular_potencia_kw(r['i_promedio'], r['v_promedio']), axis=1)
+        
+        # Desbalance de corriente vectorizado (reemplaza .apply)
+        i_matrix = df[['i_a', 'i_b', 'i_c']].values
+        i_prom = df['i_promedio'].values
+        i_prom_safe = np.where(i_prom == 0, np.nan, i_prom)
+        max_dev_i = np.max(np.abs(i_matrix - i_prom[:, np.newaxis]), axis=1)
+        df['desbalance_i'] = np.nan_to_num((max_dev_i / i_prom_safe) * 100).round(2)
+
+        # Potencia vectorizada (reemplaza .apply)
+        # Formula: (sqrt(3) * v_prom * i_prom * fp * eficiencia) / 1000.0
+        df['potencia_kw'] = ((np.sqrt(3) * df['v_promedio'] * df['i_promedio'] * 0.85 * 0.90) / 1000.0).round(2)
         
     return df
 
+@st.cache_data(ttl=300)
+def obtener_termografias():
+    """Consulta termografías con vectorización aplicada."""
+    query = """
+    SELECT i.*, e.corriente_nominal 
+    FROM inspecciones_termograficas i
+    LEFT JOIN catalogo_equipos e ON i.equipo_id = e.id
+    ORDER BY i.fecha_inspeccion DESC, i.id DESC;
+    """
+    df = pd.read_sql_query(query, con=engine)
+    return optimizar_dataframe_inspecciones(df)
+
+@st.cache_data(ttl=300)
 def obtener_eventos():
     query = "SELECT * FROM registro_eventos ORDER BY fecha_hora DESC, id DESC;"
     return pd.read_sql_query(query, engine)
 
+@st.cache_data(ttl=300)
 def obtener_equipos():
     query = "SELECT * FROM catalogo_equipos ORDER BY codigo_equipo ASC;"
-    return pd.read_sql_query(query, engine)
-
-def obtener_termografias():
-    query = "SELECT * FROM inspecciones_termograficas ORDER BY fecha_inspeccion DESC, id DESC;"
     return pd.read_sql_query(query, engine)
 
 def obtener_pruebas_aislamiento():
@@ -608,8 +653,8 @@ if opcion == "Dashboard & KPIs":
         alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
     
     if not df_termo.empty:
-        alertas_criticas += len(df_termo[df_termo['estado'] == 'Critico'])
-        alertas_advertencia += len(df_termo[df_termo['estado'] == 'Alarma'])
+        alertas_criticas = len(df_termo[df_termo['estado'].str.upper() == 'CRITICO'])
+        alertas_advertencia = len(df_termo[df_termo['estado'].str.upper() == 'ADVERTENCIA'])
 
     # Índice de Salud Estimado (0 - 100%)
     if total_equipos > 0:
