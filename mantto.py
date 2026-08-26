@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 DUMMY_HASH = bcrypt.hashpw(b"dummy_password", bcrypt.gensalt(rounds=12)).decode('utf-8')
 
 st.set_page_config(
-    page_title="Mantenimiento Bombas & Motores",
+    page_title="Mantenimiento Bombas & Motores",f
     page_icon="🌊",
     layout="wide"
 )
@@ -674,7 +674,7 @@ if opcion == "Dashboard & KPIs":
             fecha_fin = st.date_input("Fecha Fin", datetime.now())
         with col_f3:
             st.markdown("<br>", unsafe_allow_html=True)
-            btn_actualizar = st.button("🔄 Actualizar Datos", use_container_width=True)
+            btn_actualizar = st.button("🔄 Actualizar Datos", width="stretch")
 
     # Cargar Datos desde BD de forma segura
     try:
@@ -786,7 +786,7 @@ if opcion == "Dashboard & KPIs":
                 eq_code = row['codigo_equipo']
                 estatus_actual = str(row.get('estatus', 'Operativo')).strip()
                 
-                # 1. EVALUAR ALERTAS ELÉCTRICAS PRIMERO (SI EXISTEN DATOS)
+                # 1. EVALUAR ALERTAS ELÉCTRICAS PRIMERO
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
                 
@@ -898,7 +898,7 @@ if opcion == "Dashboard & KPIs":
                 legend=dict(orientation="h", y=-0.1)
             )
             
-            st.plotly_chart(fig_vector, use_container_width=True)
+            st.plotly_chart(fig_vector, width="stretch")
 
     # TAB 3: ANÁLISIS DE PARÁMETROS OPERATIVOS
     with tab_scatter:
@@ -931,7 +931,7 @@ if opcion == "Dashboard & KPIs":
                 fig_fc.add_hline(y=50.0, line_dash="dot", line_color="orange", annotation_text="Sub-operación (<50%)")
                 
                 fig_fc.update_layout(showlegend=False, height=380)
-                st.plotly_chart(fig_fc, use_container_width=True)
+                st.plotly_chart(fig_fc, width="stretch")
 
             with col_g2:
                 st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
@@ -951,7 +951,7 @@ if opcion == "Dashboard & KPIs":
                 fig_desb.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Crítico NEMA (10%)")
                 
                 fig_desb.update_layout(showlegend=False, height=380)
-                st.plotly_chart(fig_desb, use_container_width=True)
+                st.plotly_chart(fig_desb, width="stretch")
                 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
