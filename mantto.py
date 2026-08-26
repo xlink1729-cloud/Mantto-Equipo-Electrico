@@ -780,16 +780,35 @@ if opcion == "Dashboard & KPIs":
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            # --- PANEL DE ALERTA RÁPIDA DE REVISIÓN ---
-            # Normalizamos la columna para evitar fallos por mayúsculas/espacios
-            df_equipos['estatus_clean'] = df_equipos['estatus'].astype(str).str.strip().str.lower()
-            equipos_revision = df_equipos[df_equipos['estatus_clean'].isin(['en Revisión', 'Revisión', 'Revision'])]
+            # NORMALIZAR REGISTRO_EVENTOS CON SUS COLUMNAS REALES
+            if not df_eventos.empty and 'equipo' in df_eventos.columns:
+                # Normalizamos las columnas de estado y tipo de evento
+                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
+                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
 
-            if not equipos_revision.empty:
-                lista_codigos = ", ".join(equipos_revision['codigo_equipo'].tolist())
-                st.warning(f"🔍 **Equipos en Revisión ({len(equipos_revision)}):** {lista_codigos}")
+                # Ordenar por fecha_hora descendente para obtener el registro más reciente
+                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
+                
+                # Filtrar solo eventos activos que NO estén resueltos/cerrados
+                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
             else:
-                st.info("ℹ️ Actualmente no hay ningún equipo marcado 'En Revisión'.")
+                eventos_activos = pd.DataFrame()
+
+            # --- PANEL DE ALERTA RÁPIDA (EVENTOS EN REVISIÓN / ABIERTOS) ---
+            if not eventos_activos.empty:
+                # Buscar eventos activos cuyo estatus o tipo contenga "revis"
+                eq_en_revision = eventos_activos[
+                    eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
+                    eventos_activos['tipo_norm'].str.contains('revis', na=False)
+                ]
+
+                if not eq_en_revision.empty:
+                    codigos_rev = ", ".join(eq_en_revision['equipo'].unique().tolist())
+                    st.warning(f"🔍 **Equipos activos 'En Revisión' ({len(eq_en_revision)}):** {codigos_rev}")
+                else:
+                    st.info("ℹ️ No hay eventos pendientes con estado 'En Revisión'.")
+            else:
+                st.info("ℹ️ Todos los eventos en la base de datos están 'Resueltos' o no hay registros.")
 
             st.divider()
 
@@ -798,35 +817,40 @@ if opcion == "Dashboard & KPIs":
             for idx, row in df_equipos.iterrows():
                 col_idx = idx % 3
                 eq_code = row['codigo_equipo']
-                estatus_raw = str(row.get('estatus', '')).strip().lower()
                 
-                # VARIABLES POR DEFECTO
+                # VALORES POR DEFECTO
                 st_color = "eq-border-ok"
                 badge_txt = "🟢 Normal"
 
-                # 1. EVALUAR ESTATUS ADMINISTRATIVO PRIMERO (PRIORIDAD ALTA)
-                if estatus_raw in ["en revisión", "revisión", "revision"]:
-                    st_color = "eq-border-warning"
-                    badge_txt = "🔍 En Revisión"
-                elif estatus_raw == "standby":
-                    st_color = "eq-border-warning"
-                    badge_txt = "⏸️ Standby"
-                elif estatus_raw in ["fuera de servicio", "en mantenimiento"]:
-                    st_color = "eq-border-danger"
-                    badge_txt = "🔴 Fuera de Servicio"
-                
-                # 2. SI ESTÁ OPERATIVO O NORMAL, EVALUAR DESBALANCE ELÉCTRICO
-                else:
-                    if not df_elec.empty:
-                        eq_data = df_elec[df_elec['equipo'] == eq_code]
-                        if not eq_data.empty:
-                            last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                            if last_desb > 10.0:
-                                st_color = "eq-border-danger"
-                                badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                            elif last_desb >= 5.0:
-                                st_color = "eq-border-warning"
-                                badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+                # 1. EVALUAR EVENTOS ACTIVOS DE REGISTRO_EVENTOS (PRIORIDAD ALTA)
+                ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
+
+                if not ev_eq.empty:
+                    ultimo_ev = ev_eq.iloc[0]
+                    estatus_ev = ultimo_ev['estatus_norm']
+                    tipo_ev = ultimo_ev['tipo_norm']
+
+                    if 'revis' in estatus_ev or 'revis' in tipo_ev:
+                        st_color = "eq-border-warning"
+                        badge_txt = "🔍 En Revisión"
+                    elif 'abierto' in estatus_ev:
+                        st_color = "eq-border-danger"
+                        badge_txt = "⚠️ Evento Abierto"
+                    elif any(term in tipo_ev for term in ['falla', 'paro', 'fuera']):
+                        st_color = "eq-border-danger"
+                        badge_txt = "🔴 Fuera de Servicio"
+
+                # 2. EVALUAR DESBALANCE ELÉCTRICO SI NO HAY EVENTO ADMINISTRATIVO ACTIVO
+                if badge_txt == "🟢 Normal" and not df_elec.empty:
+                    eq_data = df_elec[df_elec['equipo'] == eq_code]
+                    if not eq_data.empty:
+                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                        if last_desb > 10.0:
+                            st_color = "eq-border-danger"
+                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                        elif last_desb >= 5.0:
+                            st_color = "eq-border-warning"
+                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
 
                 # RENDER DE LA TARJETA
                 with cols_grid[col_idx]:
