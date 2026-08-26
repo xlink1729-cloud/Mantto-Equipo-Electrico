@@ -753,7 +753,7 @@ if opcion == "Dashboard & KPIs":
     with kpi2:
         st.markdown(f"""
             <div class='kpi-card'>
-                <div class='kpi-title'>Total Flota</div>
+                <div class='kpi-title'>Total Equipos</div>
                 <div class='kpi-value'>{total_equipos}</div>
                 <span class='kpi-status status-ok'>⚙️ Registrados</span>
             </div>
