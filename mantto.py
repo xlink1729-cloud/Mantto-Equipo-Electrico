@@ -683,7 +683,7 @@ if opcion == "Dashboard & KPIs":
             fecha_fin = st.date_input("Fecha Fin", datetime.now())
         with col_f3:
             st.markdown("<br>", unsafe_allow_html=True)
-            btn_actualizar = st.button("🔄 Actualizar Datos", width="stretch")
+            btn_actualizar = st.button("🔄 Actualizar Datos", use_container_width=True)
 
     # Cargar Datos desde BD de forma segura
     try:
@@ -697,12 +697,11 @@ if opcion == "Dashboard & KPIs":
                 conn, params={"i": fecha_inicio, "f": fecha_fin}
             )
             df_equipos = pd.read_sql(text("SELECT * FROM catalogo_equipos;"), conn)
-
     except Exception as e:
         st.error(f"Error al cargar datos del Dashboard: {e}")
         df_elec, df_termo, df_equipos = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-# 1. CARGAR EVENTOS ACTIVOS PREVIAMENTE PARA LOS KPIS GLOBALES
+    # Cargar eventos activos para KPIs globales
     try:
         with engine.connect() as conn:
             df_eventos_kpi = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
@@ -715,12 +714,11 @@ if opcion == "Dashboard & KPIs":
         df_eventos_kpi['tipo_norm'] = df_eventos_kpi['tipo_evento'].astype(str).str.lower().str.strip()
         eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
 
-    # 2. CÁLCULO DE KPIS GLOBALES Y ESTADOS DE CATÁLOGO
+    # Cálculo de KPIs globales
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
     equipos_standby = 0
     equipos_fuera = 0
 
-    # Detección de columna de estado en catálogo (soporta estatus, estado, estatus_operativo)
     col_estado_cat = None
     if not df_equipos.empty:
         for c in ['estatus', 'estado', 'estatus_operativo', 'condicion']:
@@ -736,18 +734,15 @@ if opcion == "Dashboard & KPIs":
     alertas_criticas = 0
     alertas_advertencia = 0
 
-    # Evaluar alertas eléctricas
     if not df_elec.empty and 'desbalance_i' in df_elec.columns:
         alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
         alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
 
-    # Evaluar alertas termográficas
     if not df_termo.empty and 'estado' in df_termo.columns:
         estado_upper = df_termo['estado'].astype(str).str.upper()
         alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
         alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
 
-    # Evaluar eventos activos de la bitácora para los KPIs superiores
     if not eventos_activos_kpi.empty:
         for _, ev in eventos_activos_kpi.iterrows():
             estatus_ev = str(ev.get('estatus_norm', '')).lower()
@@ -759,7 +754,6 @@ if opcion == "Dashboard & KPIs":
             elif 'revis' in estatus_ev or 'revis' in tipo_ev or 'abierto' in estatus_ev:
                 alertas_advertencia += 1
 
-    # Índice de Salud Estimado (0 - 100%)
     if total_equipos > 0:
         penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
         salud_global = max(0, min(100, int(100 - penalizacion)))
@@ -767,6 +761,167 @@ if opcion == "Dashboard & KPIs":
         salud_global = 100
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # Render de Tarjetas KPI estilo Glassmorphism (5 Columnas)
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+
+    with kpi1:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Salud Global</div>
+                <div class='kpi-value'>{salud_global}%</div>
+                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
+                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi2:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Total Equipos</div>
+                <div class='kpi-value'>{total_equipos}</div>
+                <span class='kpi-status status-ok'>⚙️ Registrados</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi3:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Standby / Reserva</div>
+                <div class='kpi-value' style='color: #0284c7;'>{equipos_standby}</div>
+                <span class='kpi-status status-info'>⏸️ Disponibles</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi4:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Fuera de Servicio</div>
+                <div class='kpi-value' style='color: #ef4444;'>{equipos_fuera}</div>
+                <span class='kpi-status {"status-danger" if equipos_fuera > 0 else "status-ok"}'>
+                    {"🔴 Inactivos" if equipos_fuera > 0 else "🟢 Ninguno"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with kpi5:
+        st.markdown(f"""
+            <div class='kpi-card'>
+                <div class='kpi-title'>Alertas / Críticos</div>
+                <div class='kpi-value' style='color: #eab308;'>{alertas_criticas + alertas_advertencia}</div>
+                <span class='kpi-status {"status-warning" if (alertas_criticas + alertas_advertencia) > 0 else "status-ok"}'>
+                    {"⚠️ Pendientes" if (alertas_criticas + alertas_advertencia) > 0 else "🟢 Sin Alertas"}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # 3. DECLARACIÓN DE PESTAÑAS (DEBE IR ANTES DE USAR tab_fleet, tab_radar, tab_scatter)
+    tab_fleet, tab_radar, tab_scatter = st.tabs([
+        "🎛️ Estado de Equipos (Semáforo)", 
+        "📐 Diagrama Fasorial (Vectores)", 
+        "📈 Factor de Carga vs. Salud"
+    ])
+
+    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
+    with tab_fleet:
+        st.subheader("Estado de Salud y Disponibilidad por Equipo")
+        
+        if df_equipos.empty:
+            st.info("No hay equipos registrados en el catálogo.")
+        else:
+            try:
+                with engine.connect() as conn:
+                    df_eventos = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
+            except Exception:
+                df_eventos = pd.DataFrame()
+
+            if not df_eventos.empty and 'equipo' in df_eventos.columns:
+                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
+                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
+
+                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
+                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
+            else:
+                eventos_activos = pd.DataFrame()
+
+            if not eventos_activos.empty:
+                eq_en_revision = eventos_activos[
+                    eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
+                    eventos_activos['tipo_norm'].str.contains('revis', na=False)
+                ]
+
+                if not eq_en_revision.empty:
+                    codigos_rev = ", ".join(eq_en_revision['equipo'].unique().tolist())
+                    st.warning(f"🔍 **Equipos activos 'En Revisión' ({len(eq_en_revision)}):** {codigos_rev}")
+                else:
+                    st.info("ℹ️ No hay eventos pendientes con estado 'En Revisión'.")
+            else:
+                st.info("ℹ️ Todos los eventos en la base de datos están 'Resueltos' o no hay registros.")
+
+            st.divider()
+
+            cols_grid = st.columns(3)
+            for idx, row in df_equipos.iterrows():
+                col_idx = idx % 3
+                eq_code = row['codigo_equipo']
+                
+                st_color = "eq-border-ok"
+                badge_txt = "🟢 Normal"
+
+                if col_estado_cat:
+                    estado_base = str(row.get(col_estado_cat, '')).lower().strip()
+                    if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
+                        st_color = "eq-border-standby"
+                        badge_txt = "⏸️ Standby"
+                    elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
+                        st_color = "eq-border-danger"
+                        badge_txt = "🔴 Fuera de Servicio"
+
+                ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
+
+                if not ev_eq.empty:
+                    ultimo_ev = ev_eq.iloc[0]
+                    estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
+                    tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
+                    desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
+
+                    if 'revis' in estatus_ev or 'revis' in tipo_ev:
+                        st_color = "eq-border-warning"
+                        badge_txt = "🔍 En Revisión"
+                    elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
+                        st_color = "eq-border-danger"
+                        badge_txt = "🔴 Evento Crítico"
+                    elif 'abierto' in estatus_ev:
+                        st_color = "eq-border-danger"
+                        badge_txt = "⚠️ Evento Abierto"
+
+                if badge_txt == "🟢 Normal" and not df_elec.empty:
+                    eq_data = df_elec[df_elec['equipo'] == eq_code]
+                    if not eq_data.empty:
+                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                        if last_desb > 10.0:
+                            st_color = "eq-border-danger"
+                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                        elif last_desb >= 5.0:
+                            st_color = "eq-border-warning"
+                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+                            
+                with cols_grid[col_idx]:
+                    st.markdown(f"""
+                        <div class='equipment-card {st_color}'>
+                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
+                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                            <div style='margin-top: 8px;'>
+                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
+                                    Ubicación: {row.get('ubicacion', 'N/A')}
+                                </span>
+                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
 
     # TAB 2: DIAGRAMA FASORIAL / VECTORES
     with tab_radar:
@@ -780,13 +935,11 @@ if opcion == "Dashboard & KPIs":
             df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
             
             col_eq, col_tipo = st.columns([2, 1])
-            
             with col_eq:
                 equipos_disponibles = df_reciente['equipo'].unique().tolist()
-                equipo_sel = st.selectbox("Selecciona equipo:", equipos_disponibles)
-                
+                equipo_sel = st.selectbox("Selecciona equipo:", equipos_disponibles, key="select_fasorial")
             with col_tipo:
-                tipo_param = st.radio("Métrica a evaluar:", ["Corriente (A)", "Voltaje (V)"], horizontal=True)
+                tipo_param = st.radio("Métrica a evaluar:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
             
             datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
             
@@ -809,7 +962,6 @@ if opcion == "Dashboard & KPIs":
             colores = ['#e74c3c', '#f1c40f', '#3498db']
             
             fig_vector = go.Figure()
-            
             for ang, mag, fase, color in zip(angulos, magnitudes, fases, colores):
                 fig_vector.add_trace(go.Scatterpolar(
                     r=[0, mag],
@@ -822,78 +974,52 @@ if opcion == "Dashboard & KPIs":
             
             fig_vector.update_layout(
                 polar=dict(
-                    radialaxis=dict(
-                        visible=True, 
-                        range=[0, max(magnitudes) * 1.15 if max(magnitudes) > 0 else 10],
-                        title=f"Magnitud ({unidad})"
-                    ),
-                    angularaxis=dict(
-                        tickmode='array',
-                        tickvals=[0, 120, 240],
-                        ticktext=['0° (L1)', '120° (L2)', '240° (L3)'],
-                        direction="counterclockwise"
-                    )
+                    radialaxis=dict(visible=True, range=[0, max(magnitudes) * 1.15 if max(magnitudes) > 0 else 10], title=f"Magnitud ({unidad})"),
+                    angularaxis=dict(tickmode='array', tickvals=[0, 120, 240], ticktext=['0° (L1)', '120° (L2)', '240° (L3)'], direction="counterclockwise")
                 ),
                 height=450,
                 title=titulo_graf,
                 showlegend=True,
                 legend=dict(orientation="h", y=-0.1)
             )
-            
-            st.plotly_chart(fig_vector, width="stretch")
+            st.plotly_chart(fig_vector, use_container_width=True)
 
     # TAB 3: ANÁLISIS DE PARÁMETROS OPERATIVOS
     with tab_scatter:
         st.subheader("📈 Análisis de Parámetros Operativos")
-
         df_insp = obtener_datos() if 'obtener_datos' in globals() else df_elec
         
         if df_insp is None or df_insp.empty:
             st.info("No hay registros de inspección disponibles.")
         else:
             df_graficas = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
-
             col_g1, col_g2 = st.columns(2)
 
             with col_g1:
                 st.markdown("##### ⚡ Factor de Carga (%) por Equipo")
-                
                 fig_fc = px.bar(
-                    df_graficas,
-                    x='equipo',
-                    y='factor_carga',
-                    color='factor_carga',
-                    color_continuous_scale='Blues',
-                    text_auto='.1f',
+                    df_graficas, x='equipo', y='factor_carga', color='factor_carga',
+                    color_continuous_scale='Blues', text_auto='.1f',
                     labels={'factor_carga': 'Factor Carga (%)', 'equipo': 'Equipo'},
                     title="Carga Operativa Actual vs Capacidad Nom."
                 )
-                
                 fig_fc.add_hline(y=100.0, line_dash="dash", line_color="red", annotation_text="100% Carga Nom.")
                 fig_fc.add_hline(y=50.0, line_dash="dot", line_color="orange", annotation_text="Sub-operación (<50%)")
-                
                 fig_fc.update_layout(showlegend=False, height=380)
-                st.plotly_chart(fig_fc, width="stretch")
+                st.plotly_chart(fig_fc, use_container_width=True)
 
             with col_g2:
                 st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
-                
                 fig_desb = px.bar(
-                    df_graficas,
-                    x='equipo',
-                    y='desbalance_i',
-                    color='desbalance_i',
-                    color_continuous_scale='Reds',
-                    text_auto='.1f',
+                    df_graficas, x='equipo', y='desbalance_i', color='desbalance_i',
+                    color_continuous_scale='Reds', text_auto='.1f',
                     labels={'desbalance_i': 'Desbalance (%)', 'equipo': 'Equipo'},
                     title="Desbalance Eléctrico Trifásico Actual"
                 )
-                
                 fig_desb.add_hline(y=5.0, line_dash="dash", line_color="orange", annotation_text="Alarma IEEE (5%)")
                 fig_desb.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Crítico NEMA (10%)")
-                
                 fig_desb.update_layout(showlegend=False, height=380)
-                st.plotly_chart(fig_desb, width="stretch")
+                st.plotly_chart(fig_desb, use_container_width=True)
                 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
