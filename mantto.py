@@ -871,18 +871,21 @@ if opcion == "Dashboard & KPIs":
 
                 if not ev_eq.empty:
                     ultimo_ev = ev_eq.iloc[0]
-                    estatus_ev = ultimo_ev['estatus_norm']
-                    tipo_ev = ultimo_ev['tipo_norm']
+                    estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
+                    tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
+                    
+                    # Unir descripción u observaciones de forma segura para buscar palabras clave
+                    desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
 
                     if 'revis' in estatus_ev or 'revis' in tipo_ev:
                         st_color = "eq-border-warning"
                         badge_txt = "🔍 En Revisión"
+                    elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
+                        st_color = "eq-border-danger"
+                        badge_txt = "🔴 Evento Crítico"
                     elif 'abierto' in estatus_ev:
                         st_color = "eq-border-danger"
                         badge_txt = "⚠️ Evento Abierto"
-                    elif any(term in tipo_ev for term in ['falla', 'paro', 'fuera']):
-                        st_color = "eq-border-danger"
-                        badge_txt = "🔴 Fuera de Servicio"
 
                 # Evaluación por desbalance si se encuentra en Normal
                 if badge_txt == "🟢 Normal" and not df_elec.empty:
@@ -895,7 +898,7 @@ if opcion == "Dashboard & KPIs":
                         elif last_desb >= 5.0:
                             st_color = "eq-border-warning"
                             badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
-
+                            
                 with cols_grid[col_idx]:
                     st.markdown(f"""
                         <div class='equipment-card {st_color}'>
