@@ -702,6 +702,19 @@ if opcion == "Dashboard & KPIs":
         st.error(f"Error al cargar datos del Dashboard: {e}")
         df_elec, df_termo, df_equipos = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+# 1. CARGAR EVENTOS ACTIVOS PREVIAMENTE PARA LOS KPIS GLOBALES
+    try:
+        with engine.connect() as conn:
+            df_eventos_kpi = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
+    except Exception:
+        df_eventos_kpi = pd.DataFrame()
+
+    eventos_activos_kpi = pd.DataFrame()
+    if not df_eventos_kpi.empty and 'equipo' in df_eventos_kpi.columns:
+        df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
+        df_eventos_kpi['tipo_norm'] = df_eventos_kpi['tipo_evento'].astype(str).str.lower().str.strip()
+        eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
+
     # 2. CÁLCULO DE KPIS GLOBALES Y ESTADOS DE CATÁLOGO
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
     equipos_standby = 0
@@ -734,6 +747,18 @@ if opcion == "Dashboard & KPIs":
         alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
         alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
 
+    # Evaluar eventos activos de la bitácora para los KPIs superiores
+    if not eventos_activos_kpi.empty:
+        for _, ev in eventos_activos_kpi.iterrows():
+            estatus_ev = str(ev.get('estatus_norm', '')).lower()
+            tipo_ev = str(ev.get('tipo_norm', '')).lower()
+            desc_ev = str(ev.get('descripcion', '')).lower() + str(ev.get('observaciones', '')).lower()
+            
+            if any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
+                alertas_criticas += 1
+            elif 'revis' in estatus_ev or 'revis' in tipo_ev or 'abierto' in estatus_ev:
+                alertas_advertencia += 1
+
     # Índice de Salud Estimado (0 - 100%)
     if total_equipos > 0:
         penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
@@ -742,176 +767,6 @@ if opcion == "Dashboard & KPIs":
         salud_global = 100
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # Render de Tarjetas KPI estilo Glassmorphism (5 Columnas)
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-
-    with kpi1:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Salud Global</div>
-                <div class='kpi-value'>{salud_global}%</div>
-                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
-                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with kpi2:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Total Equipos</div>
-                <div class='kpi-value'>{total_equipos}</div>
-                <span class='kpi-status status-ok'>⚙️ Registrados</span>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with kpi3:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Standby / Reserva</div>
-                <div class='kpi-value' style='color: #0284c7;'>{equipos_standby}</div>
-                <span class='kpi-status status-info'>⏸️ Disponibles</span>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with kpi4:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Fuera de Servicio</div>
-                <div class='kpi-value' style='color: #ef4444;'>{equipos_fuera}</div>
-                <span class='kpi-status {"status-danger" if equipos_fuera > 0 else "status-ok"}'>
-                    {"🔴 Inactivos" if equipos_fuera > 0 else "🟢 Ninguno"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with kpi5:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Alertas / Críticos</div>
-                <div class='kpi-value' style='color: #eab308;'>{alertas_criticas + alertas_advertencia}</div>
-                <span class='kpi-status {"status-warning" if (alertas_criticas + alertas_advertencia) > 0 else "status-ok"}'>
-                    {"⚠️ Pendientes" if (alertas_criticas + alertas_advertencia) > 0 else "🟢 Sin Alertas"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-    # 3. SEMÁFORO Y PANELES DE DIAGNÓSTICO
-    tab_fleet, tab_radar, tab_scatter = st.tabs([
-        "🎛️ Estado de Equipos (Semáforo)", 
-        "📐 Diagrama Fasorial (Vectores)", 
-        "📈 Factor de Carga vs. Salud"
-    ])
-
-    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
-    with tab_fleet:
-        st.subheader("Estado de Salud y Disponibilidad por Equipo")
-        
-        if df_equipos.empty:
-            st.info("No hay equipos registrados en el catálogo.")
-        else:
-            # 1. CARGA DE EVENTOS DESDE LA BASE DE DATOS
-            try:
-                with engine.connect() as conn:
-                    df_eventos = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
-            except Exception:
-                df_eventos = pd.DataFrame()
-
-            # 2. NORMALIZAR Y FILTRAR EVENTOS ACTIVOS
-            if not df_eventos.empty and 'equipo' in df_eventos.columns:
-                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
-                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
-
-                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
-                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
-            else:
-                eventos_activos = pd.DataFrame()
-
-            # 3. PANEL DE ALERTA RÁPIDA
-            if not eventos_activos.empty:
-                eq_en_revision = eventos_activos[
-                    eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
-                    eventos_activos['tipo_norm'].str.contains('revis', na=False)
-                ]
-
-                if not eq_en_revision.empty:
-                    codigos_rev = ", ".join(eq_en_revision['equipo'].unique().tolist())
-                    st.warning(f"🔍 **Equipos activos 'En Revisión' ({len(eq_en_revision)}):** {codigos_rev}")
-                else:
-                    st.info("ℹ️ No hay eventos pendientes con estado 'En Revisión'.")
-            else:
-                st.info("ℹ️ Todos los eventos en la base de datos están 'Resueltos' o no hay registros.")
-
-            st.divider()
-
-            # 4. GRID DE TARJETAS DE EQUIPOS
-            cols_grid = st.columns(3)
-            for idx, row in df_equipos.iterrows():
-                col_idx = idx % 3
-                eq_code = row['codigo_equipo']
-                
-                # Estado Base por Catálogo
-                st_color = "eq-border-ok"
-                badge_txt = "🟢 Normal"
-
-                if col_estado_cat:
-                    estado_base = str(row.get(col_estado_cat, '')).lower().strip()
-                    if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
-                        st_color = "eq-border-standby"
-                        badge_txt = "⏸️ Standby"
-                    elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
-                        st_color = "eq-border-danger"
-                        badge_txt = "🔴 Fuera de Servicio"
-
-                # Sobrescribir estado si existe Evento Activo en la Bitácora
-                ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
-
-                if not ev_eq.empty:
-                    ultimo_ev = ev_eq.iloc[0]
-                    estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
-                    tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
-                    
-                    # Unir descripción u observaciones de forma segura para buscar palabras clave
-                    desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
-
-                    if 'revis' in estatus_ev or 'revis' in tipo_ev:
-                        st_color = "eq-border-warning"
-                        badge_txt = "🔍 En Revisión"
-                    elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
-                        st_color = "eq-border-danger"
-                        badge_txt = "🔴 Evento Crítico"
-                    elif 'abierto' in estatus_ev:
-                        st_color = "eq-border-danger"
-                        badge_txt = "⚠️ Evento Abierto"
-
-                # Evaluación por desbalance si se encuentra en Normal
-                if badge_txt == "🟢 Normal" and not df_elec.empty:
-                    eq_data = df_elec[df_elec['equipo'] == eq_code]
-                    if not eq_data.empty:
-                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                        if last_desb > 10.0:
-                            st_color = "eq-border-danger"
-                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                        elif last_desb >= 5.0:
-                            st_color = "eq-border-warning"
-                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
-                            
-                with cols_grid[col_idx]:
-                    st.markdown(f"""
-                        <div class='equipment-card {st_color}'>
-                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
-                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
-                            <div style='margin-top: 8px;'>
-                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
-                                    Ubicación: {row.get('ubicacion', 'N/A')}
-                                </span>
-                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
 
     # TAB 2: DIAGRAMA FASORIAL / VECTORES
     with tab_radar:
