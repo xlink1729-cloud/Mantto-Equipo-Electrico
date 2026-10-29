@@ -1055,6 +1055,11 @@ elif opcion == "Catálogo de Equipos":
                 marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. US Motors / Siemens 1LA")
                 no_serie = st.text_input("Número de Serie", placeholder="Ej. SN-8894021")
                 frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC")
+                
+                # NUEVOS CAMPOS DE BALEROS (Colocados estratégicamente después del frame)
+                balero_sup = st.text_input("Balero Superior", placeholder="Ej. 6311-2ZC3")
+                balero_inf = st.text_input("Balero Inferior", placeholder="Ej. 7311-B")
+                
                 estatus_e = st.selectbox("Estatus Operativo", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
 
             with col_e2:
@@ -1090,11 +1095,13 @@ elif opcion == "Catálogo de Equipos":
                     q_ins_eq = text("""
                     INSERT INTO catalogo_equipos (
                         codigo_equipo, ubicacion, marca_modelo, no_serie, frame, 
+                        balero_superior, balero_inferior,
                         potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, 
                         estatus, breaker_amp, overload_setting, calibre_cable, material_conductor,
                         conductores_por_fase, distancia_m, observaciones
                     ) VALUES (
                         :cod, :ub, :mm, :ns, :fr, 
+                        :bsup, :binf,
                         :php, :vnom, :inom, :rpm, :fs, 
                         :est, :brk, :ovl, :cal, :mat,
                         :hilos, :dist, :obs
@@ -1105,7 +1112,8 @@ elif opcion == "Catálogo de Equipos":
                         with engine.begin() as conn:
                             conn.execute(q_ins_eq, {
                                 "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
-                                "fr": frame_m, "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
+                                "fr": frame_m, "bsup": balero_sup.strip(), "binf": balero_inf.strip(),
+                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
                                 "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
                                 "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
                                 "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
