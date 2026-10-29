@@ -1252,9 +1252,9 @@ elif opcion == "Nueva Inspección Eléctrica":
 
     df_equipos_cat = obtener_equipos()
 
-    # FILTRAR SOLO EQUIPOS CON ESTATUS OPERATIVO
+    # FILTRAR EQUIPOS OPERATIVOS O EN REVISIÓN (Permite inspeccionar los que tienen ventilador/mitigación activa)
     if not df_equipos_cat.empty and 'estatus' in df_equipos_cat.columns:
-        df_equipos_activos = df_equipos_cat[df_equipos_cat['estatus'] == 'Operativo']
+        df_equipos_activos = df_equipos_cat[df_equipos_cat['estatus'].isin(['Operativo', 'En Revisión'])]
     else:
         df_equipos_activos = df_equipos_cat.copy()
 
@@ -1266,11 +1266,11 @@ elif opcion == "Nueva Inspección Eléctrica":
             
             # SECCIÓN DE SELECCIÓN DE EQUIPO FILTRADO
             if not df_equipos_activos.empty:
-                opciones_eq = df_equipos_activos.apply(lambda row: f"{row['codigo_equipo']} ({row['ubicacion']})", axis=1).tolist()
-                eq_seleccionado = st.selectbox("Seleccionar Equipo del Catálogo (Solo Operativos)", opciones_eq)
+                opciones_eq = df_equipos_activos.apply(lambda row: f"{row['codigo_equipo']} ({row['ubicacion']}) - [{row['estatus']}]", axis=1).tolist()
+                eq_seleccionado = st.selectbox("Seleccionar Equipo del Catálogo", opciones_eq)
                 equipo = eq_seleccionado.split(" (")[0].strip()
             else:
-                st.warning("⚠️ No hay equipos en estatus 'Operativo'. Se muestra campo manual.")
+                st.warning("⚠️ No hay equipos disponibles para inspección. Se muestra campo manual.")
                 equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 01").strip()
 
         with col_f2:
