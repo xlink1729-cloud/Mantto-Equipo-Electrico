@@ -1327,7 +1327,7 @@ elif opcion == "Catálogo de Equipos":
                     except Exception as e:
                         st.error(f"❌ Error al guardar en la base de datos: {e}")
 
-    # --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
+   # --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
     with tab3:
         df_eq = obtener_equipos()
         if df_eq.empty:
@@ -1335,7 +1335,7 @@ elif opcion == "Catálogo de Equipos":
         else:
             st.subheader("🛠️ Gestor de Placas e Instalaciones Registradas")
             lista_codigos = df_eq['codigo_equipo'].tolist()
-            eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos)
+            eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos, key="sel_eq_gestor_tab3")
 
             eq_registro = df_eq[df_eq['codigo_equipo'] == eq_sel_cod].iloc[0]
 
@@ -1362,43 +1362,61 @@ elif opcion == "Catálogo de Equipos":
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
                         val_est = eq_registro.get('estatus', 'Operativo')
                         idx_est = estatus_op.index(val_est) if val_est in estatus_op else 0
-                        edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
+                        edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est, key=f"est_edit_{eq_registro['codigo_equipo']}")
 
                         c_eq1, c_eq2 = st.columns(2)
-                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro.get('potencia_hp', 0.0) or 0.0), step=5.0)
-                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro.get('voltaje_nom', 0.0) or 0.0), step=10.0)
+                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro.get('potencia_hp', 0.0) or 0.0), step=5.0, key=f"pot_edit_{eq_registro['codigo_equipo']}")
+                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro.get('voltaje_nom', 0.0) or 0.0), step=10.0, key=f"vnom_edit_{eq_registro['codigo_equipo']}")
                         
                         c_eq3, c_eq4 = st.columns(2)
-                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0)
-                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro.get('rpm', 0) or 0), step=50)
+                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0, key=f"inom_edit_{eq_registro['codigo_equipo']}")
+                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro.get('rpm', 0) or 0), step=50, key=f"rpm_edit_{eq_registro['codigo_equipo']}")
 
-                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro.get('factor_servicio', 1.0) or 1.0), step=0.05)
+                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro.get('factor_servicio', 1.0) or 1.0), step=0.05, key=f"fs_edit_{eq_registro['codigo_equipo']}")
 
                         st.divider()
 
+                        # --- SECCIÓN 2: PROTECCIONES Y MANIOBRA CON SELECTOR DINÁMICO ---
                         st.markdown("##### ⚡ 2. Protecciones y Maniobra en CCM")
                         c_p1, c_p2 = st.columns(2)
-                        edit_brk = c_p1.number_input("ITM Principal (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
-                        edit_ovl = c_p2.number_input("Ajuste / Capacidad Protección (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0)
+                        edit_brk = c_p1.number_input("ITM Principal (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0, key=f"brk_edit_{eq_registro['codigo_equipo']}")
+                        
+                        edit_tipo_prot = c_p1.selectbox(
+                            "Esquema de Protección Secundaria", 
+                            [
+                                "Fusibles de Protección",
+                                "ITM Electrónico (LSIG)", 
+                                "ITM Termomagnético / Magnético", 
+                                "Relevador Térmico de Sobrecarga"
+                            ],
+                            key=f"sel_tipo_prot_edit_{eq_registro['codigo_equipo']}"
+                        )
+
+                        if edit_tipo_prot == "Fusibles de Protección":
+                            edit_ovl = c_p2.number_input("Capacidad de los Fusibles (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=5.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
+                        elif edit_tipo_prot == "ITM Electrónico (LSIG)":
+                            edit_ovl = c_p2.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
+                        else:
+                            edit_ovl = c_p2.number_input("Ajuste / Capacidad Protección (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
                         
                         st.divider()
 
                         st.markdown("##### 🔌 3. Cableado y Alimentación")
                         c_p3, c_p4 = st.columns(2)
-                        edit_cal = c_p3.text_input("Calibre Conductor", value=str(eq_registro.get('calibre_cable', '') or ""))
+                        edit_cal = c_p3.text_input("Calibre Conductor", value=str(eq_registro.get('calibre_cable', '') or ""), key=f"cal_edit_{eq_registro['codigo_equipo']}")
                         
                         mat_op = ["Cobre (Cu)", "Aluminio (Al)"]
                         val_mat = str(eq_registro.get('material_conductor', 'Cobre (Cu)'))
                         idx_mat = mat_op.index(val_mat) if val_mat in mat_op else 0
-                        edit_mat = c_p4.selectbox("Material Conductor", mat_op, index=idx_mat)
+                        edit_mat = c_p4.selectbox("Material Conductor", mat_op, index=idx_mat, key=f"mat_edit_{eq_registro['codigo_equipo']}")
 
                         c_p5, c_p6 = st.columns(2)
-                        edit_hilos = c_p5.number_input("Conductores por Fase", value=int(eq_registro.get('conductores_por_fase', 1) or 1), min_value=1, max_value=6, step=1)
-                        edit_dist = c_p6.number_input("Distancia a CCM (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0)
+                        edit_hilos = c_p5.number_input("Conductores por Fase", value=int(eq_registro.get('conductores_por_fase', 1) or 1), min_value=1, max_value=6, step=1, key=f"hilos_edit_{eq_registro['codigo_equipo']}")
+                        edit_dist = c_p6.number_input("Distancia a CCM (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0, key=f"dist_edit_{eq_registro['codigo_equipo']}")
 
                         st.divider()
 
-                        edit_obs = st.text_area("Observaciones Adicionales", value=str(eq_registro.get('observaciones', '') or ""))
+                        edit_obs = st.text_area("Observaciones Adicionales", value=str(eq_registro.get('observaciones', '') or ""), key=f"obs_edit_{eq_registro['codigo_equipo']}")
 
                         btn_update_eq = st.form_submit_button("💾 Guardar Cambios en Ficha")
 
