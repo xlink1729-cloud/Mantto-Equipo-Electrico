@@ -1906,7 +1906,7 @@ elif opcion == "Registro de Eventos":
                 except Exception as e:
                     st.error(f"❌ Error al guardar el evento: {e}")
 
-    with tab_historial:
+with tab_historial:
         df_eventos = obtener_eventos()
         
         if df_eventos.empty:
@@ -1931,7 +1931,36 @@ elif opcion == "Registro de Eventos":
             if filtro_sev:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
 
-            st.dataframe(df_evt_filtered, use_container_width=True)
+            st.markdown(f"### 📋 Historial de Bitácora ({len(df_evt_filtered)} eventos encontrados)")
+            st.divider()
+
+            # Renderizar cada evento como una tarjeta expansible independiente
+            for _, row in df_evt_filtered.iterrows():
+                estatus = row.get('estatus', 'Abierto')
+                # Indicador visual según el estatus
+                icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
+                
+                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **{row['equipo']}** — {row['tipo_evento']} [{estatus}]"
+                
+                with st.expander(titulo_tarjeta):
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown(f"**📅 Fecha y Hora:**\n{row['fecha_hora']}")
+                    with c2:
+                        st.markdown(f"**⚡ Severidad:**\n{row['severidad']}")
+                    with c3:
+                        st.markdown(f"**👤 Reportado por:**\n{row.get('reportado_por', 'N/A')}")
+                    
+                    st.markdown("---")
+                    st.markdown("**📝 Descripción / Causa Raíz:**")
+                    st.info(row['descripcion'] if row['descripcion'] else "Sin descripción detallada.")
+                    
+                    st.markdown("**🛠️ Acciones Tomadas e Historial de Cierre:**")
+                    # Las notas múltiples con saltos de línea se muestran ordenadas verticalmente
+                    accion_texto = row['accion_tomada'] if row['accion_tomada'] else "Sin acciones registradas aún."
+                    st.success(accion_texto)
+
+            st.divider()
 
             csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
             st.download_button(
