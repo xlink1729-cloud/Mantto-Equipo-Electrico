@@ -1246,27 +1246,27 @@ elif opcion == "Catálogo de Equipos":
             col_p1, col_p2 = st.columns(2)
 
             with col_p1:
-                breaker_a = st.number_input("1. ITM Principal (A)", value=350.0, step=5.0, help="Capacidad nominal del interruptor termomagnético / electrónico principal")
+                breaker_a = st.number_input("ITM Principal (A)", value=350.0, step=5.0, help="Capacidad nominal del interruptor principal")
+                
+                # Selector de tipo de protección para incluir fusibles, LSIG, etc.
                 tipo_proteccion = st.selectbox(
-                    "Esquema de Protección", 
+                    "Esquema de Protección Secundaria", 
                     [
+                        "Fusibles de Protección",
                         "ITM Electrónico (LSIG)", 
                         "ITM Termomagnético / Magnético", 
-                        "Fusibles de Protección",
                         "Relevador Térmico de Sobrecarga"
                     ],
-                    help="Selecciona el tipo de dispositivo de disparo instalado en el circuito"
+                    key="sel_tipo_prot_nuevo" # Asegúrate de usar una key única o distinta en tab2 y tab3 si es necesario
                 )
 
             with col_p2:
-                if tipo_proteccion == "ITM Electrónico (LSIG)":
-                    sobrecarga_a = st.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=220.0, step=1.0, help="Ajuste de corriente en la unidad electrónica LSIG")
-                elif tipo_proteccion == "Fusibles de Protección":
-                    sobrecarga_a = st.number_input("Capacidad de Fusibles (A)", value=250.0, step=5.0, help="Corriente nominal del cartucho fusible instalado")
+                if tipo_proteccion == "Fusibles de Protección":
+                    sobrecarga_a = st.number_input("Capacidad de los Fusibles (A)", value=250.0, step=5.0, help="Corriente nominal del cartucho fusible instalado")
+                elif tipo_proteccion == "ITM Electrónico (LSIG)":
+                    sobrecarga_a = st.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=220.0, step=1.0, help="Ajuste de corriente en la unidad electrónica")
                 else:
-                    sobrecarga_a = st.number_input("Ajuste Termomagnético / Térmico (A)", value=220.0, step=1.0, help="Corriente de disparo ajustada en campo")
-
-            st.divider()
+                    sobrecarga_a = st.number_input("Ajuste / Capacidad Protección (A)", value=220.0, step=1.0, help="Corriente de disparo configurada")
 
             # PASO 3: CABLEADO Y LÍNEA DE ALIMENTACIÓN
             st.markdown("##### 🔌 3. Cableado y Línea de Alimentación")
