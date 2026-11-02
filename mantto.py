@@ -1033,7 +1033,7 @@ elif opcion == "Catálogo de Equipos":
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
-with tab1:
+    with tab1:
         df_eq = obtener_equipos()
         if df_eq.empty:
             st.info("No hay equipos registrados en el catálogo.")
@@ -1169,7 +1169,6 @@ with tab1:
 
             with col_edit_eq:
                 with st.expander("✏️ Editar Ficha del Equipo e Instalación", expanded=True):
-                    # Usamos el código del equipo como clave única del formulario para evitar conflictos
                     with st.form(f"form_edit_eq_{eq_registro['codigo_equipo']}"):
                         
                         st.markdown("##### 🏷️ 1. Placa de Datos del Motor")
@@ -1180,7 +1179,6 @@ with tab1:
                         val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
                         edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
                         
-                        # CAMPOS DE BALEROS EN EDICIÓN (Ubicados justo después del frame)
                         val_bsup = str(eq_registro.get('balero_superior', '')) if pd.notna(eq_registro.get('balero_superior', '')) else ""
                         edit_balero_sup = st.text_input("Balero Superior", value=val_bsup)
                         
