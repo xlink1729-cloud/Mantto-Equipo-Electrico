@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
 import bcrypt
 import logging
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
+from sqlalchemy import create_engine, text
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
