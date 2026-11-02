@@ -1163,6 +1163,7 @@ elif opcion == "Catálogo de Equipos":
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
+    # --- TAB 1: LISTADO Y AGRUPACIÓN POR UBICACIÓN ---
     with tab1:
         df_eq = obtener_equipos()
         if df_eq.empty:
@@ -1212,52 +1213,80 @@ elif opcion == "Catálogo de Equipos":
                     with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
                         st.dataframe(df_grupo, width="stretch")
 
-    # --- TAB 2: ALTA DE EQUIPO Y DATOS DE INSTALACIÓN ---
+    # --- TAB 2: ALTA DE EQUIPO (SECUENCIA DE CADENA DE FUERZA) ---
     with tab2:
-        st.subheader("Alta de Equipo, Placa y Parámetros Eléctricos")
+        st.subheader("Alta de Equipo, Protecciones y Parámetros Eléctricos")
         with st.form("form_nuevo_equipo", clear_on_submit=True):
             
-            # SECCIÓN 1: DATOS DE PLACA
-            st.markdown("##### 🏷️ Datos Placa de Motor")
+            # PASO 1: DATOS DE PLACA DE MOTOR / BOMBA
+            st.markdown("##### ⚙️ 1. Carga Final (Motor / Bomba)")
             col_e1, col_e2 = st.columns(2)
             
             with col_e1:
-                cod_eq = st.text_input("Identificador del Equipo *", placeholder="Ej. Pozo-01, Motor-Bomba-A")
-                ubic = st.text_input("Ubicación en Planta / Área *", placeholder="Ej. Pozo Profundo No. 3, Estación B")
-                marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. US Motors / Siemens 1LA")
+                cod_eq = st.text_input("Identificador del Equipo *", placeholder="Ej. Pozo-01, M-36A")
+                ubic = st.text_input("Ubicación en Planta / Área *", placeholder="Ej. NS-26/Carcamo Nuevo Vaso")
+                marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. Moody / Warman / Siemens")
                 no_serie = st.text_input("Número de Serie", placeholder="Ej. SN-8894021")
                 frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC")
-                
-                # NUEVOS CAMPOS DE BALEROS (Colocados estratégicamente después del frame)
-                balero_sup = st.text_input("Balero Superior", placeholder="Ej. 6311-2ZC3")
-                balero_inf = st.text_input("Balero Inferior", placeholder="Ej. 7311-B")
-                
+                balero_sup = st.text_input("Balero Superior", placeholder="Ej. 6219 C3")
+                balero_inf = st.text_input("Balero Inferior", placeholder="Ej. 7226 2P7A")
                 estatus_e = st.selectbox("Estatus Operativo", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
 
             with col_e2:
-                pot_hp = st.number_input("Potencia (HP)", value=50.0, step=5.0)
+                pot_hp = st.number_input("Potencia (HP)", value=175.0, step=5.0)
                 v_nom = st.number_input("Voltaje Nominal (V)", value=440.0, step=10.0)
-                i_nom = st.number_input("Corriente Nominal / FLA (A) *", value=65.0, step=1.0)
+                i_nom = st.number_input("Corriente Nominal / FLA (A) *", value=220.0, step=1.0)
                 rpm_e = st.number_input("Velocidad Nominal (RPM)", value=1750, step=50)
-                fs_e = st.number_input("Factor de Servicio (F.S.)", value=1.0, step=0.05)
+                fs_e = st.number_input("Factor de Servicio (F.S.)", value=1.15, step=0.05)
 
             st.divider()
 
-            # SECCIÓN 2: PROTECCIONES Y ALIMENTACIÓN
-            st.markdown("##### ⚡ Protecciones y Cableado de Alimentación")
+            # PASO 2: DISPOSITIVOS DE PROTECCIÓN Y MANIOBRA (CCM)
+            st.markdown("##### ⚡ 2. Protecciones y Maniobra en CCM (ITM, Fusibles y Arrancador)")
             col_p1, col_p2 = st.columns(2)
 
             with col_p1:
-                breaker_a = st.number_input("Capacidad Interruptor / Breaker (A)", value=100.0, step=5.0, help="Capacidad nominal del MCCB/Guardamotor")
-                sobrecarga_a = st.number_input("Ajuste Termomagnético / Relevador (A)", value=65.0, step=1.0, help="Corriente de disparo ajustada en campo")
-                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=25.0, step=5.0, help="Distancia lineal de cableado")
+                breaker_a = st.number_input("1. ITM Principal (A)", value=350.0, step=5.0, help="Capacidad nominal del interruptor termomagnético / electrónico principal")
+                tipo_proteccion = st.selectbox(
+                    "Esquema de Protección", 
+                    [
+                        "ITM Electrónico (LSIG)", 
+                        "ITM Termomagnético / Magnético", 
+                        "Fusibles de Protección",
+                        "Relevador Térmico de Sobrecarga"
+                    ],
+                    help="Selecciona el tipo de dispositivo de disparo instalado en el circuito"
+                )
 
             with col_p2:
-                calibre_c = st.text_input("Calibre de Conductor", placeholder="Ej. 3/0 AWG, 250 kcmil, 8 AWG")
-                material_c = st.selectbox("Material del Conductor", ["Cobre (Cu)", "Aluminio (Al)"])
-                hilos_fase = st.number_input("Conductores por Fase", value=1, min_value=1, max_value=6, step=1, help="Número de cables en paralelo por fase")
+                if tipo_proteccion == "ITM Electrónico (LSIG)":
+                    sobrecarga_a = st.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=220.0, step=1.0, help="Ajuste de corriente en la unidad electrónica LSIG")
+                elif tipo_proteccion == "Fusibles de Protección":
+                    sobrecarga_a = st.number_input("Capacidad de Fusibles (A)", value=250.0, step=5.0, help="Corriente nominal del cartucho fusible instalado")
+                else:
+                    sobrecarga_a = st.number_input("Ajuste Termomagnético / Térmico (A)", value=220.0, step=1.0, help="Corriente de disparo ajustada en campo")
 
-            obs_eq = st.text_area("Observaciones Adicionales (Placa o Instalación)")
+            st.divider()
+
+            # PASO 3: CABLEADO Y LÍNEA DE ALIMENTACIÓN
+            st.markdown("##### 🔌 3. Cableado y Línea de Alimentación")
+            col_c1, col_c2 = st.columns(2)
+
+            with col_c1:
+                calibre_c = st.text_input("Calibre de Conductor", placeholder="Ej. 3/0 AWG, 250 kcmil, 500 kcmil")
+                material_c = st.selectbox("Material del Conductor", ["Cobre (Cu)", "Aluminio (Al)"])
+
+            with col_c2:
+                hilos_fase = st.number_input("Conductores por Fase", value=1, min_value=1, max_value=6, step=1, help="Número de cables en paralelo por fase")
+                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=35.0, step=5.0, help="Distancia lineal de cableado")
+
+            st.divider()
+
+            obs_eq = st.text_area(
+                "Observaciones Adicionales (Infraestructura compartida o notas técnicas)",
+                placeholder="Ej. Comparte ITM principal y arrancador suave con M-36B y M-36C mediante conexión rotativa en campo."
+            )
+            
             btn_guardar_eq = st.form_submit_button("💾 Guardar en Catálogo")
 
             if btn_guardar_eq:
@@ -1293,7 +1322,6 @@ elif opcion == "Catálogo de Equipos":
                             })
 
                         st.cache_data.clear()
-                        
                         st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
                         st.rerun()
                     except Exception as e:
@@ -1317,7 +1345,7 @@ elif opcion == "Catálogo de Equipos":
                 with st.expander("✏️ Editar Ficha del Equipo e Instalación", expanded=True):
                     with st.form(f"form_edit_eq_{eq_registro['codigo_equipo']}"):
                         
-                        st.markdown("##### 🏷️ 1. Placa de Datos del Motor")
+                        st.markdown("##### ⚙️ 1. Placa de Datos del Motor")
                         edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro.get('ubicacion', '') or ""))
                         edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro.get('marca_modelo', '') or ""))
                         edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro.get('no_serie', '') or ""))
@@ -1348,11 +1376,14 @@ elif opcion == "Catálogo de Equipos":
 
                         st.divider()
 
-                        st.markdown("##### ⚡ 2. Protecciones y Cableado")
+                        st.markdown("##### ⚡ 2. Protecciones y Maniobra en CCM")
                         c_p1, c_p2 = st.columns(2)
-                        edit_brk = c_p1.number_input("Breaker / MCCB (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
-                        edit_ovl = c_p2.number_input("Ajuste Sobrecarga (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0)
+                        edit_brk = c_p1.number_input("ITM Principal (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0)
+                        edit_ovl = c_p2.number_input("Ajuste / Capacidad Protección (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0)
                         
+                        st.divider()
+
+                        st.markdown("##### 🔌 3. Cableado y Alimentación")
                         c_p3, c_p4 = st.columns(2)
                         edit_cal = c_p3.text_input("Calibre Conductor", value=str(eq_registro.get('calibre_cable', '') or ""))
                         
@@ -1418,7 +1449,7 @@ elif opcion == "Catálogo de Equipos":
                     st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo?")
                     st.write(f"**Ubicación:** {eq_registro.get('ubicacion', 'N/A')}")
                     st.write(f"**FLA:** {eq_registro.get('corriente_nom', 0)} A")
-                    st.write(f"**Breaker:** {eq_registro.get('breaker_amp', 0)} A")
+                    st.write(f"**ITM Principal:** {eq_registro.get('breaker_amp', 0)} A")
                     st.write(f"**Alimentación:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
                     st.write(f"**Distancia:** {eq_registro.get('distancia_m', 0)} m")
 
