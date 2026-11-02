@@ -1033,15 +1033,18 @@ elif opcion == "Catálogo de Equipos":
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
-    with tab1:
+with tab1:
         df_eq = obtener_equipos()
         if df_eq.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
             st.subheader("📍 Equipos Agrupados por Ubicación / Área")
             
-            # Obtener la lista de ubicaciones únicas registradas en la base de datos
-            ubicaciones = df_eq['ubicacion'].dropna().unique()
+            # Limpiar y normalizar la columna de ubicación para evitar errores por espacios o nulos
+            df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
+            
+            # Obtener la lista de ubicaciones únicas ordenadas
+            ubicaciones = sorted(df_eq['ubicacion'].unique())
             
             # Selector opcional para filtrar por un área en específico
             filtro_ubicacion = st.selectbox(
@@ -1059,7 +1062,7 @@ elif opcion == "Catálogo de Equipos":
                 st.dataframe(df_filtrado, width="stretch")
                 st.caption(f"Total de equipos en esta área: {len(df_filtrado)}")
             else:
-                # Si selecciona "Todas", se despliega un bloque (expander) ordenado por cada ubicación
+                # Si selecciona "Todas", se despliega un expander ordenado por cada ubicación
                 for ub in ubicaciones:
                     df_grupo = df_eq[df_eq['ubicacion'] == ub]
                     
