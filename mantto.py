@@ -1287,7 +1287,14 @@ elif opcion == "Catálogo de Equipos":
                 placeholder="Ej. Comparte ITM principal y arrancador suave con M-36B y M-36C mediante conexión rotativa en campo."
             )
             
-            btn_guardar_eq = st.form_submit_button("💾 Guardar en Catálogo")
+            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR ---
+            col_btn1, col_btn2 = st.columns(2)
+            btn_guardar_eq = col_btn1.form_submit_button("💾 Guardar en Catálogo", use_container_width=True)
+            btn_cancelar_eq = col_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+            if btn_cancelar_eq:
+                st.warning("Acción de registro cancelada.")
+                st.rerun()
 
             if btn_guardar_eq:
                 if not cod_eq.strip():
@@ -1313,6 +1320,24 @@ elif opcion == "Catálogo de Equipos":
                         with engine.begin() as conn:
                             conn.execute(q_ins_eq, {
                                 "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
+                                "fr": frame_m, "bsup": balero_sup.strip(), "binf": balero_inferior.strip() if 'balero_inferior' in locals() else balero_inf.strip(),
+                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
+                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
+                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
+                                "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
+                                "obs": obs_eq
+                            })
+
+                        st.cache_data.clear()
+                        st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar en la base de datos: {e}")
+                    
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(q_ins_eq, {
+                                "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
                                 "fr": frame_m, "bsup": balero_sup.strip(), "binf": balero_inf.strip(),
                                 "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
                                 "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
@@ -1327,7 +1352,7 @@ elif opcion == "Catálogo de Equipos":
                     except Exception as e:
                         st.error(f"❌ Error al guardar en la base de datos: {e}")
 
-   # --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
+# --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
     with tab3:
         df_eq = obtener_equipos()
         if df_eq.empty:
@@ -1418,7 +1443,14 @@ elif opcion == "Catálogo de Equipos":
 
                         edit_obs = st.text_area("Observaciones Adicionales", value=str(eq_registro.get('observaciones', '') or ""), key=f"obs_edit_{eq_registro['codigo_equipo']}")
 
-                        btn_update_eq = st.form_submit_button("💾 Guardar Cambios en Ficha")
+                        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR EN EDICIÓN ---
+                        col_ebtn1, col_ebtn2 = st.columns(2)
+                        btn_update_eq = col_ebtn1.form_submit_button("💾 Guardar Cambios en Ficha", use_container_width=True)
+                        btn_cancelar_edit = col_ebtn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+                        if btn_cancelar_edit:
+                            st.warning("Edición cancelada. No se guardaron cambios.")
+                            st.rerun()
 
                         if btn_update_eq:
                             q_upd_eq = text("""
@@ -1537,7 +1569,16 @@ elif opcion == "Nueva Inspección Eléctrica":
 
         observaciones = st.text_area("Observaciones adicionales")
 
-        enviado = st.form_submit_button("Guardar Registro")
+        st.divider()
+
+        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR ---
+        col_btn1, col_btn2 = st.columns(2)
+        enviado = col_btn1.form_submit_button("💾 Guardar Registro", use_container_width=True)
+        btn_cancelar_insp = col_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+        if btn_cancelar_insp:
+            st.warning("Inspección cancelada. No se registraron datos.")
+            st.rerun()
 
         if enviado:
             desb_v_ff = calcular_desbalance(v_ab, v_bc, v_ca)
@@ -1815,7 +1856,16 @@ elif opcion == "Registro de Eventos":
                 accion_ev = st.text_input("Acción Inmediata Tomada", placeholder="Ej. Se aisló el equipo y notificó...")
                 estatus_ev = st.selectbox("Estatus del Evento", ["Abierto", "En Revisión", "Resuelto"])
 
-            btn_evento = st.form_submit_button("💾 Guardar Evento en BD")
+            st.divider()
+
+            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (NUEVO EVENTO) ---
+            col_b_ev1, col_b_ev2 = st.columns(2)
+            btn_evento = col_b_ev1.form_submit_button("💾 Guardar Evento en BD", use_container_width=True)
+            btn_cancelar_ev = col_b_ev2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+            if btn_cancelar_ev:
+                st.warning("Registro de evento cancelado.")
+                st.rerun()
 
             if btn_evento:
                 fecha_hora_completa = datetime.combine(fecha_ev, hora_ev)
@@ -1928,7 +1978,14 @@ elif opcion == "Registro de Eventos":
                                 placeholder="Ej. Se corrigió la falla de aislamiento, se realizaron pruebas de rotación y megger. Motor reconectado y operando en norma."
                             )
 
-                            btn_reconectar = st.form_submit_button("💾 Guardar Reconexión y Cerrar")
+                            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (RECONEXIÓN) ---
+                            col_bc1, col_bc2 = st.columns(2)
+                            btn_reconectar = col_bc1.form_submit_button("💾 Guardar y Cerrar", use_container_width=True)
+                            btn_cancelar_close = col_bc2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+                            if btn_cancelar_close:
+                                st.warning("Operación de cierre cancelada.")
+                                st.rerun()
 
                             if btn_reconectar:
                                 if not accion_reconexion.strip():
@@ -1964,7 +2021,7 @@ elif opcion == "Registro de Eventos":
                                                 "est": estado_equipo, 
                                                 "eq": str(evt_registro['equipo']).strip()
                                             })
-                                            
+                                        
                                         st.success(f"✅ Evento #{id_evt_sel} cerrado y equipo actualizado a '{estado_equipo}'.")
                                         st.rerun()
                                     except Exception as e:
@@ -2003,7 +2060,16 @@ elif opcion == "Registro de Eventos":
                         idx_est = estatus_lista.index(evt_registro['estatus']) if evt_registro['estatus'] in estatus_lista else 0
                         edit_est_ev = st.selectbox("Estatus", estatus_lista, index=idx_est)
 
-                        btn_update_evt = st.form_submit_button("💾 Guardar Cambios")
+                        st.divider()
+
+                        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (EDICIÓN DE EVENTO) ---
+                        col_be1, col_be2 = st.columns(2)
+                        btn_update_evt = col_be1.form_submit_button("💾 Guardar Cambios", use_container_width=True)
+                        btn_cancelar_edit_evt = col_be2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+
+                        if btn_cancelar_edit_evt:
+                            st.warning("Edición de evento cancelada.")
+                            st.rerun()
 
                         if btn_update_evt:
                             new_fh = datetime.combine(edit_f_ev, edit_h_ev)
@@ -2073,7 +2139,7 @@ elif opcion == "Registro de Eventos":
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al eliminar el evento: {e}")
-
+                            
 # ---------------------------------------------------------
 # 6. HISTORIAL DE MEDICIONES
 # ---------------------------------------------------------
