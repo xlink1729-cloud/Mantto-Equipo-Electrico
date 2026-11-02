@@ -827,7 +827,7 @@ if opcion == "Dashboard & KPIs":
 
     # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
-        st.subheader("Estado de Salud y Disponibilidad por Equipo")
+        st.subheader("Estado de Salud y Disponibilidad por Ubicación / Área")
         
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
@@ -863,66 +863,88 @@ if opcion == "Dashboard & KPIs":
 
             st.divider()
 
-            cols_grid = st.columns(3)
-            for idx, row in df_equipos.iterrows():
-                col_idx = idx % 3
-                eq_code = row['codigo_equipo']
-                
-                st_color = "eq-border-ok"
-                badge_txt = "🟢 Normal"
+            # Normalizar ubicaciones para un agrupamiento limpio
+            df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
+            ubicaciones = sorted(df_equipos['ubicacion'].unique())
 
-                if col_estado_cat:
-                    estado_base = str(row.get(col_estado_cat, '')).lower().strip()
-                    if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
-                        st_color = "eq-border-standby"
-                        badge_txt = "⏸️ Standby"
-                    elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
-                        st_color = "eq-border-danger"
-                        badge_txt = "🔴 Fuera de Servicio"
+            # Filtro opcional por área en el Dashboard
+            filtro_ubicacion_dash = st.selectbox(
+                "Filtrar vista de tarjetas por área específica:", 
+                ["Todas las áreas"] + list(ubicaciones),
+                key="filtro_ubicacion_dash_fleet"
+            )
 
-                ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
+            st.divider()
 
-                if not ev_eq.empty:
-                    ultimo_ev = ev_eq.iloc[0]
-                    estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
-                    tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
-                    desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
+            # Definir qué grupos mostrar según el filtro
+            if filtro_ubicacion_dash != "Todas las áreas":
+                df_grupos_a_mostrar = {filtro_ubicacion_dash: df_equipos[df_equipos['ubicacion'] == filtro_ubicacion_dash]}
+            else:
+                df_grupos_a_mostrar = {ub: df_equipos[df_equipos['ubicacion'] == ub] for ub in ubicaciones}
 
-                    if 'revis' in estatus_ev or 'revis' in tipo_ev:
-                        st_color = "eq-border-warning"
-                        badge_txt = "🔍 En Revisión"
-                    elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
-                        st_color = "eq-border-danger"
-                        badge_txt = "🔴 Evento Crítico"
-                    elif 'abierto' in estatus_ev:
-                        st_color = "eq-border-danger"
-                        badge_txt = "⚠️ Evento Abierto"
+            # Renderizar las tarjetas agrupadas por expanders de ubicación
+            for ub, df_grupo in df_grupos_a_mostrar.items():
+                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
+                    cols_grid = st.columns(3)
+                    for idx, row in df_grupo.reset_index(drop=True).iterrows():
+                        col_idx = idx % 3
+                        eq_code = row['codigo_equipo']
+                        
+                        st_color = "eq-border-ok"
+                        badge_txt = "🟢 Normal"
 
-                if badge_txt == "🟢 Normal" and not df_elec.empty:
-                    eq_data = df_elec[df_elec['equipo'] == eq_code]
-                    if not eq_data.empty:
-                        last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                        if last_desb > 10.0:
-                            st_color = "eq-border-danger"
-                            badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                        elif last_desb >= 5.0:
-                            st_color = "eq-border-warning"
-                            badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+                        if col_estado_cat:
+                            estado_base = str(row.get(col_estado_cat, '')).lower().strip()
+                            if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
+                                st_color = "eq-border-standby"
+                                badge_txt = "⏸️ Standby"
+                            elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
+                                st_color = "eq-border-danger"
+                                badge_txt = "🔴 Fuera de Servicio"
+
+                        ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
+
+                        if not ev_eq.empty:
+                            ultimo_ev = ev_eq.iloc[0]
+                            estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
+                            tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
+                            desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
+
+                            if 'revis' in estatus_ev or 'revis' in tipo_ev:
+                                st_color = "eq-border-warning"
+                                badge_txt = "🔍 En Revisión"
+                            elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
+                                st_color = "eq-border-danger"
+                                badge_txt = "🔴 Evento Crítico"
+                            elif 'abierto' in estatus_ev:
+                                st_color = "eq-border-danger"
+                                badge_txt = "⚠️ Evento Abierto"
+
+                        if badge_txt == "🟢 Normal" and not df_elec.empty:
+                            eq_data = df_elec[df_elec['equipo'] == eq_code]
+                            if not eq_data.empty:
+                                last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
+                                if last_desb > 10.0:
+                                    st_color = "eq-border-danger"
+                                    badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
+                                elif last_desb >= 5.0:
+                                    st_color = "eq-border-warning"
+                                    badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
+                                    
+                        with cols_grid[col_idx]:
+                            st.markdown(f"""
+                                <div class='equipment-card {st_color}'>
+                                    <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
+                                    <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                                    <div style='margin-top: 8px;'>
+                                        <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
+                                            Ubicación: {row.get('ubicacion', 'N/A')}
+                                        </span>
+                                        <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                                    </div>
+                                </div>
+                            """, unsafe_allow_html=True)
                             
-                with cols_grid[col_idx]:
-                    st.markdown(f"""
-                        <div class='equipment-card {st_color}'>
-                            <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
-                            <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
-                            <div style='margin-top: 8px;'>
-                                <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
-                                    Ubicación: {row.get('ubicacion', 'N/A')}
-                                </span>
-                                <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
-
     # TAB 2: DIAGRAMA FASORIAL / VECTORES
     with tab_radar:
         st.subheader("📐 Diagrama Fasorial Trifásico")
