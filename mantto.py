@@ -1033,13 +1033,39 @@ elif opcion == "Catálogo de Equipos":
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
-    with tab1:
+with tab1:
         df_eq = obtener_equipos()
         if df_eq.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            st.dataframe(df_eq, width="stretch")
-
+            st.subheader("📍 Equipos Agrupados por Ubicación / Área")
+            
+            # Obtener la lista de ubicaciones únicas registradas en la base de datos
+            ubicaciones = df_eq['ubicacion'].dropna().unique()
+            
+            # Selector opcional para filtrar por un área en específico
+            filtro_ubicacion = st.selectbox(
+                "Filtrar vista por área específica:", 
+                ["Todas las áreas"] + list(ubicaciones),
+                key="filtro_ubicacion_tab1"
+            )
+            
+            st.divider()
+            
+            # Si el usuario elige un área en particular, mostramos solo esa
+            if filtro_ubicacion != "Todas las áreas":
+                df_filtrado = df_eq[df_eq['ubicacion'] == filtro_ubicacion]
+                st.markdown(f"### 🏭 {filtro_ubicacion}")
+                st.dataframe(df_filtrado, width="stretch")
+                st.caption(f"Total de equipos en esta área: {len(df_filtrado)}")
+            else:
+                # Si selecciona "Todas", se despliega un bloque (expander) ordenado por cada ubicación
+                for ub in ubicaciones:
+                    df_grupo = df_eq[df_eq['ubicacion'] == ub]
+                    
+                    with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
+                        st.dataframe(df_grupo, width="stretch")
+                        
     # --- TAB 2: ALTA DE EQUIPO Y DATOS DE INSTALACIÓN ---
     with tab2:
         st.subheader("Alta de Equipo, Placa y Parámetros Eléctricos")
