@@ -1907,68 +1907,68 @@ elif opcion == "Registro de Eventos":
                     st.error(f"❌ Error al guardar el evento: {e}")
 
 with tab_historial:
-        df_eventos = obtener_eventos()
+    df_eventos = obtener_eventos()
         
-        if df_eventos.empty:
-            st.info("Aún no hay eventos ni incidentes registrados.")
-        else:
-            df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora", key_suffix="registro_eventos")
+    if df_eventos.empty:
+        st.info("Aún no hay eventos ni incidentes registrados.")
+    else:
+        df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora", key_suffix="registro_eventos")
 
-            f_col1, f_col2 = st.columns(2)
-            with f_col1:
-                filtro_eq = st.multiselect(
-                    "Filtrar por Equipo:", 
-                    df_eventos["equipo"].dropna().unique()
-                )
-            with f_col2:
-                filtro_sev = st.multiselect(
-                    "Filtrar por Severidad:", 
-                    df_eventos["severidad"].dropna().unique()
-                )
-
-            if filtro_eq:
-                df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
-            if filtro_sev:
-                df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
-
-            st.markdown(f"### 📋 Historial de Bitácora ({len(df_evt_filtered)} eventos encontrados)")
-            st.divider()
-
-            # Renderizar cada evento como una tarjeta expansible independiente
-            for _, row in df_evt_filtered.iterrows():
-                estatus = row.get('estatus', 'Abierto')
-                # Indicador visual según el estatus
-                icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
-                
-                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **{row['equipo']}** — {row['tipo_evento']} [{estatus}]"
-                
-                with st.expander(titulo_tarjeta):
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.markdown(f"**📅 Fecha y Hora:**\n{row['fecha_hora']}")
-                    with c2:
-                        st.markdown(f"**⚡ Severidad:**\n{row['severidad']}")
-                    with c3:
-                        st.markdown(f"**👤 Reportado por:**\n{row.get('reportado_por', 'N/A')}")
-                    
-                    st.markdown("---")
-                    st.markdown("**📝 Descripción / Causa Raíz:**")
-                    st.info(row['descripcion'] if row['descripcion'] else "Sin descripción detallada.")
-                    
-                    st.markdown("**🛠️ Acciones Tomadas e Historial de Cierre:**")
-                    # Las notas múltiples con saltos de línea se muestran ordenadas verticalmente
-                    accion_texto = row['accion_tomada'] if row['accion_tomada'] else "Sin acciones registradas aún."
-                    st.success(accion_texto)
-
-            st.divider()
-
-            csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Exportar Eventos a CSV",
-                data=csv_ev,
-                file_name=f"eventos_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            filtro_eq = st.multiselect(
+                "Filtrar por Equipo:", 
+                df_eventos["equipo"].dropna().unique()
             )
+        with f_col2:
+            filtro_sev = st.multiselect(
+                "Filtrar por Severidad:", 
+                df_eventos["severidad"].dropna().unique()
+            )
+
+        if filtro_eq:
+            df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
+        if filtro_sev:
+            df_evt_filtered = df_evt_filtered[df_evt_filtered["severidad"].isin(filtro_sev)]
+
+        st.markdown(f"### 📋 Historial de Bitácora ({len(df_evt_filtered)} eventos encontrados)")
+        st.divider()
+
+        # Renderizar cada evento como una tarjeta expansible independiente
+        for _, row in df_evt_filtered.iterrows():
+            estatus = row.get('estatus', 'Abierto')
+            # Indicador visual según el estatus
+            icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
+                
+            titulo_tarjeta = f"{icono_est} ID #{row['id']} | **{row['equipo']}** — {row['tipo_evento']} [{estatus}]"
+                
+            with st.expander(titulo_tarjeta):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f"**📅 Fecha y Hora:**\n{row['fecha_hora']}")
+                with c2:
+                    st.markdown(f"**⚡ Severidad:**\n{row['severidad']}")
+                with c3:
+                    st.markdown(f"**👤 Reportado por:**\n{row.get('reportado_por', 'N/A')}")
+                    
+                st.markdown("---")
+                st.markdown("**📝 Descripción / Causa Raíz:**")
+                st.info(row['descripcion'] if row['descripcion'] else "Sin descripción detallada.")
+                    
+                st.markdown("**🛠️ Acciones Tomadas e Historial de Cierre:**")
+                # Las notas múltiples con saltos de línea se muestran ordenadas verticalmente
+                accion_texto = row['accion_tomada'] if row['accion_tomada'] else "Sin acciones registradas aún."
+                st.success(accion_texto)
+
+        st.divider()
+
+        csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Exportar Eventos a CSV",
+            data=csv_ev,
+            file_name=f"eventos_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
 
     with tab_gestion:
         df_eventos = obtener_eventos()
