@@ -4,3 +4,6 @@ psycopg2-binary
 plotly
 bcrypt
 psycopg[binary]
+pandas
+bcrypt
+reportlab
