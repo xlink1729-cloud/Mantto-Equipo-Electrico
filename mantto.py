@@ -7,6 +7,11 @@ from sqlalchemy import create_engine, text
 import bcrypt
 import logging
 import plotly.graph_objects as go
+from io import BytesIO
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # Configurar logging interno para no mostrar trazas de error al usuario
 logging.basicConfig(level=logging.INFO)
@@ -431,6 +436,109 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
 # ---------------------------------------------------------
 # FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
 # ---------------------------------------------------------
+
+def generar_pdf_catalogo_general(df_equipos):
+    buffer = BytesIO()
+    # Documento horizontal para que quepan holgadamente todas las columnas
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=landscape(letter), 
+        rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25
+    )
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        textColor=colors.HexColor('#1E293B'),
+        spaceAfter=4
+    )
+    subtitle_style = ParagraphStyle(
+        'SubTitleStyle',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#64748B'),
+        spaceAfter=15
+    )
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontSize=7,
+        leading=8
+    )
+    cell_header = ParagraphStyle(
+        'HeaderStyle',
+        parent=styles['Normal'],
+        fontSize=7.5,
+        leading=9,
+        fontName='Helvetica-Bold',
+        textColor=colors.white
+    )
+
+    # Encabezado del reporte
+    fecha_hoy = datetime.now().strftime("%d/%m/%Y %H:%M")
+    story.append(Paragraph("📋 CATÁLOGO GENERAL DE EQUIPOS E INSTALACIONES ELÉCTRICAS", title_style))
+    story.append(Paragraph(f"Fecha de reporte: {fecha_hoy} | Total de equipos registrados: {len(df_equipos)}", subtitle_style))
+
+    # Encabezados de la tabla general
+    headers = [
+        Paragraph("Código", cell_header),
+        Paragraph("Ubicación / Área", cell_header),
+        Paragraph("Marca / Modelo", cell_header),
+        Paragraph("Frame", cell_header),
+        Paragraph("Balero Sup.", cell_header),
+        Paragraph("Balero Inf.", cell_header),
+        Paragraph("HP", cell_header),
+        Paragraph("FLA (A)", cell_header),
+        Paragraph("Breaker", cell_header),
+        Paragraph("Cable / Mat.", cell_header),
+        Paragraph("Estatus", cell_header)
+    ]
+    
+    table_data = [headers]
+
+    for _, row in df_equipos.iterrows():
+        # Formatear cableado (ej. 1x 3/0 AWG (Cu))
+        hilos = int(row.get('conductores_por_fase', 1) or 1)
+        cal = str(row.get('calibre_cable', '') or '-').strip()
+        mat = str(row.get('material_conductor', '') or '').replace("Cobre (Cu)", "Cu").replace("Aluminio (Al)", "Al")
+        cable_fmt = f"{hilos}x {cal} ({mat})" if cal != '-' else '-'
+
+        fila = [
+            Paragraph(str(row.get('codigo_equipo', '')), cell_style),
+            Paragraph(str(row.get('ubicacion', '') or 'N/A'), cell_style),
+            Paragraph(str(row.get('marca_modelo', '') or 'N/A'), cell_style),
+            Paragraph(str(row.get('frame', '') or '-'), cell_style),
+            Paragraph(str(row.get('balero_superior', '') or '-'), cell_style),
+            Paragraph(str(row.get('balero_inferior', '') or '-'), cell_style),
+            Paragraph(f"{row.get('potencia_hp', 0)}", cell_style),
+            Paragraph(f"{row.get('corriente_nom', 0)} A", cell_style),
+            Paragraph(f"{row.get('breaker_amp', 0)} A", cell_style),
+            Paragraph(cable_fmt, cell_style),
+            Paragraph(str(row.get('estatus', 'Operativo')), cell_style)
+        ]
+        table_data.append(fila)
+
+    # Anchos de columna optimizados para hoja horizontal (Landscape Letter = 792 pt de ancho total)
+    col_widths = [65, 110, 95, 45, 60, 60, 35, 45, 45, 90, 60]
+    
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+    ]))
+    
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # La función debe declararse fuera del condicional 'elif'
 def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
@@ -1060,8 +1168,21 @@ elif opcion == "Catálogo de Equipos":
         if df_eq.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            st.subheader("📍 Equipos Agrupados por Ubicación / Área")
-            
+            col_t1, col_t2 = st.columns([3, 1])
+            with col_t1:
+                st.subheader("📍 Equipos Agrupados por Ubicación / Área")
+            with col_t2:
+                # Generar el PDF global en memoria
+                pdf_catalogo_bytes = generar_pdf_catalogo_general(df_eq)
+                st.download_button(
+                    label="📄 Exportar Catálogo Completo (PDF)",
+                    data=pdf_catalogo_bytes,
+                    file_name=f"catalogo_general_equipos_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_pdf_catalogo_general"
+                )
+
             # Limpiar y normalizar la columna de ubicación para evitar errores por espacios o nulos
             df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
             
