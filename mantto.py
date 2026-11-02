@@ -1143,7 +1143,8 @@ elif opcion == "Catálogo de Equipos":
 
             with col_edit_eq:
                 with st.expander("✏️ Editar Ficha del Equipo e Instalación", expanded=True):
-                    with st.form(f"form_edit_eq_{eq_registro['id']}"):
+                    # Usamos el código del equipo como clave única del formulario para evitar conflictos
+                    with st.form(f"form_edit_eq_{eq_registro['codigo_equipo']}"):
                         
                         st.markdown("##### 🏷️ 1. Placa de Datos del Motor")
                         edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro.get('ubicacion', '') or ""))
@@ -1152,6 +1153,13 @@ elif opcion == "Catálogo de Equipos":
                         
                         val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
                         edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
+                        
+                        # CAMPOS DE BALEROS EN EDICIÓN (Ubicados justo después del frame)
+                        val_bsup = str(eq_registro.get('balero_superior', '')) if pd.notna(eq_registro.get('balero_superior', '')) else ""
+                        edit_balero_sup = st.text_input("Balero Superior", value=val_bsup)
+                        
+                        val_binf = str(eq_registro.get('balero_inferior', '')) if pd.notna(eq_registro.get('balero_inferior', '')) else ""
+                        edit_balero_inf = st.text_input("Balero Inferior", value=val_binf)
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
                         val_est = eq_registro.get('estatus', 'Operativo')
@@ -1200,6 +1208,8 @@ elif opcion == "Catálogo de Equipos":
                                 marca_modelo = :mm,
                                 no_serie = :ns,
                                 frame = :fr,
+                                balero_superior = :bsup,
+                                balero_inferior = :binf,
                                 potencia_hp = :php,
                                 voltaje_nom = :vnom,
                                 corriente_nom = :inom,
@@ -1213,15 +1223,16 @@ elif opcion == "Catálogo de Equipos":
                                 conductores_por_fase = :hilos,
                                 distancia_m = :dist,
                                 observaciones = :obs
-                            WHERE id = :id;
+                            WHERE codigo_equipo = :cod;
                             """)
 
                             params_upd_eq = {
                                 "ub": edit_ubic, "mm": edit_marca_m, "ns": edit_no_serie, "fr": edit_frame,
+                                "bsup": edit_balero_sup.strip(), "binf": edit_balero_inf.strip(),
                                 "php": edit_pot_hp, "vnom": edit_v_nom, "inom": edit_i_nom, "rpm": edit_rpm,
                                 "fs": edit_fs, "est": edit_estatus, "brk": edit_brk, "ovl": edit_ovl,
                                 "cal": edit_cal, "mat": edit_mat, "hilos": edit_hilos, "dist": edit_dist, 
-                                "obs": edit_obs, "id": int(eq_registro['id'])
+                                "obs": edit_obs, "cod": eq_sel_cod
                             }
 
                             try:
@@ -1241,16 +1252,16 @@ elif opcion == "Catálogo de Equipos":
                     st.write(f"**Alimentación:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
                     st.write(f"**Distancia:** {eq_registro.get('distancia_m', 0)} m")
 
-                    if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_registro['id']}"):
-                        q_del_eq = text("DELETE FROM catalogo_equipos WHERE id = :id;")
+                    if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_sel_cod}"):
+                        q_del_eq = text("DELETE FROM catalogo_equipos WHERE codigo_equipo = :cod;")
                         try:
                             with engine.begin() as conn:
-                                conn.execute(q_del_eq, {"id": int(eq_registro['id'])})
+                                conn.execute(q_del_eq, {"cod": eq_sel_cod})
                             st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado con éxito.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al eliminar el equipo: {e}")
-
+                            
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
 # ---------------------------------------------------------
