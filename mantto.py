@@ -1033,41 +1033,41 @@ elif opcion == "Catálogo de Equipos":
         "🛠️ Modificar / Eliminar Equipo"
     ])
 
-with tab1:
-    df_eq = obtener_equipos()
-    if df_eq.empty:
-        st.info("No hay equipos registrados en el catálogo.")
-    else:
-        st.subheader("📍 Equipos Agrupados por Ubicación / Área")
-            
-        # Limpiar y normalizar la columna de ubicación para evitar errores por espacios o nulos
-        df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
-            
-        # Obtener la lista de ubicaciones únicas ordenadas
-        ubicaciones = sorted(df_eq['ubicacion'].unique())
-            
-        # Selector opcional para filtrar por un área en específico
-        filtro_ubicacion = st.selectbox(
-            "Filtrar vista por área específica:", 
-            ["Todas las áreas"] + list(ubicaciones),
-            key="filtro_ubicacion_tab1"
-        )
-            
-        st.divider()
-            
-        # Si el usuario elige un área en particular, mostramos solo esa
-        if filtro_ubicacion != "Todas las áreas":
-            df_filtrado = df_eq[df_eq['ubicacion'] == filtro_ubicacion]
-            st.markdown(f"### 🏭 {filtro_ubicacion}")
-            st.dataframe(df_filtrado, width="stretch")
-            st.caption(f"Total de equipos en esta área: {len(df_filtrado)}")
+    with tab1:
+        df_eq = obtener_equipos()
+        if df_eq.empty:
+            st.info("No hay equipos registrados en el catálogo.")
         else:
-            # Si selecciona "Todas", se despliega un expander ordenado por cada ubicación
-            for ub in ubicaciones:
-                df_grupo = df_eq[df_eq['ubicacion'] == ub]
+            st.subheader("📍 Equipos Agrupados por Ubicación / Área")
+            
+            # Limpiar y normalizar la columna de ubicación para evitar errores por espacios o nulos
+            df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
+            
+            # Obtener la lista de ubicaciones únicas ordenadas
+            ubicaciones = sorted(df_eq['ubicacion'].unique())
+            
+            # Selector opcional para filtrar por un área en específico
+            filtro_ubicacion = st.selectbox(
+                "Filtrar vista por área específica:", 
+                ["Todas las áreas"] + list(ubicaciones),
+                key="filtro_ubicacion_tab1"
+            )
+            
+            st.divider()
+            
+            # Si el usuario elige un área en particular, mostramos solo esa
+            if filtro_ubicacion != "Todas las áreas":
+                df_filtrado = df_eq[df_eq['ubicacion'] == filtro_ubicacion]
+                st.markdown(f"### 🏭 {filtro_ubicacion}")
+                st.dataframe(df_filtrado, width="stretch")
+                st.caption(f"Total de equipos en esta área: {len(df_filtrado)}")
+            else:
+                # Si selecciona "Todas", se despliega un expander ordenado por cada ubicación
+                for ub in ubicaciones:
+                    df_grupo = df_eq[df_eq['ubicacion'] == ub]
                     
-                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
-                    st.dataframe(df_grupo, width="stretch")
+                    with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
+                        st.dataframe(df_grupo, width="stretch")
 
     # --- TAB 2: ALTA DE EQUIPO Y DATOS DE INSTALACIÓN ---
     with tab2:
