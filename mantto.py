@@ -735,13 +735,15 @@ if opcion == "Dashboard & KPIs":
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            # Obtenemos los eventos activos actuales para cruzar alertas por S/N
+            # Obtenemos los eventos activos y unificamos los identificadores (tanto S/N como posiciones viejas)
             try:
                 with engine.connect() as conn:
                     df_ev_activos = pd.read_sql(text("SELECT equipo, severidad, tipo_evento FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
-                sn_con_eventos = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
+                
+                # Conjunto con cualquier texto guardado en el evento (serial o posición antigua)
+                identificadores_con_eventos = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
             except Exception:
-                sn_con_eventos = set()
+                identificadores_con_eventos = set()
 
             df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
             ubicaciones = sorted(df_equipos['ubicacion'].unique())
@@ -753,11 +755,10 @@ if opcion == "Dashboard & KPIs":
                     for idx, row in df_grupo.reset_index(drop=True).iterrows():
                         col_idx = idx % 3
                         serial = str(row['no_serie']).strip()
-                        codigo = row['codigo_equipo']
+                        codigo = str(row['codigo_equipo']).strip()
                         
-                        # Lógica de semáforo inteligente:
-                        # Si tiene un evento abierto, prevalece la alerta aunque esté operando físicamente
-                        if serial in sn_con_eventos:
+                        # Cruce dual: Si el S/N O el código de posición tienen un evento abierto, salta la alerta
+                        if serial in identificadores_con_eventos or codigo in identificadores_con_eventos:
                             st_color = "eq-border-warning"
                             badge_txt = "⚠️ En Alerta / Incidencia"
                         elif "fuera" in str(row.get('estatus', '')).lower():
@@ -782,7 +783,7 @@ if opcion == "Dashboard & KPIs":
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
-
+                            
     with tab_radar:
         st.subheader("📐 Diagrama Fasorial Trifásico")
         df_insp = obtener_datos()
