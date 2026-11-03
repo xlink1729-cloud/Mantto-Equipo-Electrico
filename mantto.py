@@ -689,10 +689,24 @@ if opcion == "Dashboard & KPIs":
         equipos_standby = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('standby|reserva', na=False)])
         equipos_fuera = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('fuera|baja|paro', na=False)])
 
+    # ---------------------------------------------------------
+    # CÁLCULO UNIFICADO DE ALERTAS (Eléctricas + Eventos Activos)
+    # ---------------------------------------------------------
     alertas_criticas, alertas_advertencia = 0, 0
+
+    # 1. Alertas por inspecciones eléctricas
     if not df_elec.empty and 'desbalance_i' in df_elec.columns:
         alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
         alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
+
+    # 2. Alertas por eventos y bitácora abiertos (Suma automática al contador)
+    if not eventos_activos_kpi.empty:
+        # Si hay eventos críticos o de alta severidad abiertos
+        criticos_ev = len(eventos_activos_kpi[eventos_activos_kpi['severidad'].isin(['Alta', 'Crítica'])])
+        advertencias_ev = len(eventos_activos_kpi[~eventos_activos_kpi['severidad'].isin(['Alta', 'Crítica'])])
+        
+        alertas_criticas += criticos_ev
+        alertas_advertencia += advertencias_ev
 
     if total_equipos > 0:
         penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
