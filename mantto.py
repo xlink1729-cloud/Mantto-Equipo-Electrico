@@ -681,14 +681,14 @@ if opcion == "Dashboard & KPIs":
         df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
         eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
 
-    # ---------------------------------------------------------
-    # CÁLCULO UNIFICADO Y REAL DE KPIS (Semáforo vs Contadores)
+# ---------------------------------------------------------
+    # CÁLCULO UNIFICADO Y REAL DE KPIS Y SEMÁFORO
     # ---------------------------------------------------------
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
     equipos_standby, equipos_fuera = 0, 0
     alertas_criticas, alertas_advertencia = 0, 0
 
-    # 1. Obtener eventos activos de la bitácora
+    # 1. Obtener eventos activos de la bitácora (incluyendo S/N y códigos de posición)
     try:
         with engine.connect() as conn:
             df_ev_activos = pd.read_sql(text("SELECT equipo, severidad FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
@@ -697,22 +697,20 @@ if opcion == "Dashboard & KPIs":
 
     ids_con_incidencia = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
 
-    # 2. Recorrido unificado por el catálogo de equipos
+    # 2. Recorrido unificado idéntico a la jerarquía del semáforo visual
     if not df_equipos.empty:
         for _, row in df_equipos.iterrows():
             est_cat = str(row.get('estatus', '')).lower().strip()
             serial = str(row.get('no_serie', '')).strip()
             codigo = str(row.get('codigo_equipo', '')).strip()
 
-            # Conteo de equipos Standby
-            if 'standby' in est_cat or 'reserva' in est_cat:
-                equipos_standby += 1
-            
-            # Conteo de Fuera de Servicio (Rojos)
-            elif 'fuera' in est_cat or 'baja' in est_cat or 'paro' in est_cat:
+            # Jerarquía 1: Fuera de servicio (Rojo)
+            if "fuera" in est_cat or "baja" in est_cat or "paro" in est_cat:
                 equipos_fuera += 1
-            
-            # Conteo de equipos Operativos que tienen una incidencia abierta (Naranjas / Alerta)
+            # Jerarquía 2: Standby (Azul)
+            elif "standby" in est_cat or "reserva" in est_cat:
+                equipos_standby += 1
+            # Jerarquía 3: Operando pero con incidencia abierta (Naranja / Alerta)
             elif serial in ids_con_incidencia or codigo in ids_con_incidencia:
                 sev_row = df_ev_activos[
                     (df_ev_activos['equipo'].astype(str).str.strip() == serial) | 
@@ -726,112 +724,11 @@ if opcion == "Dashboard & KPIs":
     total_alertas_activas = alertas_criticas + alertas_advertencia
 
     if total_equipos > 0:
-        # Penalización de salud basada estrictamente en rojos y naranjas reales
         penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
         salud_global = max(0, min(100, int(100 - penalizacion)))
     else:
         salud_global = 100
-
-    # ---------------------------------------------------------
-    # CÁLCULO UNIFICADO DE ALERTAS (Eléctricas + Eventos Activos)
-    # ---------------------------------------------------------
-    alertas_criticas, alertas_advertencia = 0, 0
-
-    # 1. Alertas por inspecciones eléctricas
-    if not df_elec.empty and 'desbalance_i' in df_elec.columns:
-        alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
-        alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
-
-    # 2. Alertas por eventos y bitácora abiertos (Suma automática al contador)
-    if not eventos_activos_kpi.empty:
-        # Si hay eventos críticos o de alta severidad abiertos
-        criticos_ev = len(eventos_activos_kpi[eventos_activos_kpi['severidad'].isin(['Alta', 'Crítica'])])
-        advertencias_ev = len(eventos_activos_kpi[~eventos_activos_kpi['severidad'].isin(['Alta', 'Crítica'])])
-        
-        alertas_criticas += criticos_ev
-        alertas_advertencia += advertencias_ev
-
-    if total_equipos > 0:
-        penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
-        salud_global = max(0, min(100, int(100 - penalizacion)))
-    else:
-        salud_global = 100
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-    with kpi1:
-        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Salud Global</div><div class='kpi-value'>{salud_global}%</div><span class='kpi-status status-ok'>🟢 Óptimo</span></div>", unsafe_allow_html=True)
-    with kpi2:
-        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Activos</div><div class='kpi-value'>{total_equipos}</div><span class='kpi-status status-ok'>⚙️ Registrados</span></div>", unsafe_allow_html=True)
-    with kpi3:
-        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Standby</div><div class='kpi-value' style='color:#0284c7;'>{equipos_standby}</div><span class='kpi-status status-info'>⏸️ Reserva</span></div>", unsafe_allow_html=True)
-    with kpi4:
-        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Fuera de Servicio</div><div class='kpi-value' style='color:#ef4444;'>{equipos_fuera}</div><span class='kpi-status status-danger'>🔴 Inactivos</span></div>", unsafe_allow_html=True)
-    with kpi5:
-        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Alertas Activas</div><div class='kpi-value' style='color:#eab308;'>{alertas_criticas + alertas_advertencia}</div><span class='kpi-status status-warning'>⚠️ Pendientes</span></div>", unsafe_allow_html=True)
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    tab_fleet, tab_radar, tab_scatter = st.tabs(["🎛️ Estado de Equipos (Semáforo)", "📐 Diagrama Fasorial", "📈 Factor de Carga vs. Salud"])
-
-    with tab_fleet:
-        st.subheader("Estado de Salud por Área y Posición Operativa")
-        if df_equipos.empty:
-            st.info("No hay equipos registrados en el catálogo.")
-        else:
-            # Obtenemos los eventos activos y unificamos los identificadores (tanto S/N como posiciones viejas)
-            try:
-                with engine.connect() as conn:
-                    df_ev_activos = pd.read_sql(text("SELECT equipo, severidad, tipo_evento FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
-                
-                # Conjunto con cualquier texto guardado en el evento (serial o posición antigua)
-                identificadores_con_eventos = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
-            except Exception:
-                identificadores_con_eventos = set()
-
-            df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
-            ubicaciones = sorted(df_equipos['ubicacion'].unique())
-            
-            for ub in ubicaciones:
-                df_grupo = df_equipos[df_equipos['ubicacion'] == ub]
-                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} activos)", expanded=True):
-                    cols_grid = st.columns(3)
-                    for idx, row in df_grupo.reset_index(drop=True).iterrows():
-                        col_idx = idx % 3
-                        serial = str(row['no_serie']).strip()
-                        codigo = str(row['codigo_equipo']).strip()
-                        estatus_cat = str(row.get('estatus', '')).lower().strip()
-                        
-                        # JERARQUÍA CORRECTA DEL SEMÁFORO:
-                        # 1. Si está fuera de servicio en el catálogo -> ROJO (Prioridad máxima)
-                        if "fuera" in estatus_cat or "baja" in estatus_cat or "paro" in estatus_cat:
-                            st_color = "eq-border-danger"
-                            badge_txt = "🔴 Fuera de Servicio"
-                        # 2. Si está en Standby -> AZUL
-                        elif "standby" in estatus_cat or "reserva" in estatus_cat:
-                            st_color = "eq-border-standby"
-                            badge_txt = "⏸️ Standby"
-                        # 3. Si sigue operando pero tiene evento abierto -> NARANJA (Alerta de equipo trabajando con falla)
-                        elif serial in identificadores_con_eventos or codigo in identificadores_con_eventos:
-                            st_color = "eq-border-warning"
-                            badge_txt = "⚠️ En Alerta / Incidencia"
-                        # 4. Si todo está bien -> VERDE
-                        else:
-                            st_color = "eq-border-ok"
-                            badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
-
-                        with cols_grid[col_idx]:
-                            st.markdown(f"""
-                                <div class='equipment-card {st_color}'>
-                                    <strong style='font-size: 1.1rem; color: #1e293b;'>{codigo}</strong> 
-                                    <span style='font-size: 0.8rem; color: #64748b;'>(S/N: {serial})</span><br>
-                                    <span style='font-size: 0.85rem; color: #475569;'>{row.get('marca_modelo', 'N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
-                                    <div style='margin-top: 8px;'>
-                                        <span class='kpi-status' style='background: #f1f5f9; color: #334155;'>FLA: {row.get('corriente_nom', 0)} A</span>
-                                        <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
-                                    </div>
-                                </div>
-                            """, unsafe_allow_html=True)
-                            
+                          
     with tab_radar:
         st.subheader("📐 Diagrama Fasorial Trifásico")
         df_insp = obtener_datos()
