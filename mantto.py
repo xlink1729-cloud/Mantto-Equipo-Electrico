@@ -75,7 +75,7 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS inspecciones_bombas (
             id SERIAL PRIMARY KEY,
             fecha DATE,
-            equipo VARCHAR(100),
+            equipo VARCHAR(100), -- Almacena el no_serie del motor
             tipo VARCHAR(50),
             v_ab FLOAT, v_bc FLOAT, v_ca FLOAT,
             desbalance_v_ff FLOAT,
@@ -105,7 +105,7 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS registro_eventos (
             id SERIAL PRIMARY KEY,
             fecha_hora TIMESTAMP,
-            equipo VARCHAR(100),
+            equipo VARCHAR(100), -- Almacena el no_serie del motor
             tipo_evento VARCHAR(100),
             severidad VARCHAR(20),
             descripcion TEXT,
@@ -117,16 +117,24 @@ def inicializar_bd():
         """
         CREATE TABLE IF NOT EXISTS catalogo_equipos (
             id SERIAL PRIMARY KEY,
-            codigo_equipo VARCHAR(100) UNIQUE NOT NULL,
+            codigo_equipo VARCHAR(100) NOT NULL, -- Posición funcional / Área (ej. M-16)
             ubicacion VARCHAR(150),
             marca_modelo VARCHAR(100),
-            no_serie VARCHAR(100),
+            no_serie VARCHAR(100) UNIQUE NOT NULL, -- Llave maestra del activo físico
             frame VARCHAR(50),
+            balero_superior VARCHAR(50),
+            balero_inferior VARCHAR(50),
             potencia_hp FLOAT,
             voltaje_nom FLOAT,
             corriente_nom FLOAT,
             rpm INT,
             factor_servicio FLOAT,
+            breaker_amp FLOAT,
+            overload_setting FLOAT,
+            calibre_cable VARCHAR(50),
+            material_conductor VARCHAR(50),
+            conductores_por_fase INT DEFAULT 1,
+            distancia_m FLOAT,
             estatus VARCHAR(30) DEFAULT 'Operativo',
             observaciones TEXT
         );
@@ -134,7 +142,7 @@ def inicializar_bd():
         """
         CREATE TABLE IF NOT EXISTS inspecciones_termograficas (
             id SERIAL PRIMARY KEY,
-            equipo_id VARCHAR(100) NOT NULL,
+            equipo_id VARCHAR(100) NOT NULL, -- Almacena no_serie
             fecha_inspeccion DATE NOT NULL,
             punto_medicion VARCHAR(100) NOT NULL,
             hot_spot NUMERIC(5, 2) NOT NULL,
@@ -152,7 +160,7 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS pruebas_aislamiento (
             id SERIAL PRIMARY KEY,
             fecha_hora TIMESTAMP,
-            equipo VARCHAR(100),
+            equipo VARCHAR(100), -- Almacena no_serie
             voltaje_prueba_v INT,
             temp_devanado_c FLOAT,
             r_30s_mohm FLOAT,
@@ -178,7 +186,9 @@ def inicializar_bd():
         "ALTER TABLE usuarios ALTER COLUMN password_hash TYPE VARCHAR(255);",
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS intentos_fallidos INT DEFAULT 0;",
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS bloqueado_hasta TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL;",
-        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS frame VARCHAR(50);"
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS frame VARCHAR(50);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS balero_superior VARCHAR(50);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS balero_inferior VARCHAR(50);"
     ]
     for col_query in columnas_extra:
         try:
@@ -213,23 +223,19 @@ if "sesion_valida" not in st.session_state:
     st.session_state["rol_actual"] = None
 
 def logout():
-    """Limpia de forma segura el estado de la sesión."""
     for key in ["sesion_valida", "usuario_actual", "username_actual", "rol_actual"]:
         st.session_state[key] = None
     st.session_state["sesion_valida"] = False
     st.rerun()
 
 def es_admin() -> bool:
-    """Verifica de forma segura si el usuario actual tiene rol de administrador."""
     return st.session_state.get("sesion_valida", False) and st.session_state.get("rol_actual") == "admin"
 
 MAX_INTENTOS = 3
 TIEMPO_BLOQUEO_MINUTOS = 15
 
 def login(usuario: str, password: str):
-    """Valida credenciales, previene Timing Attacks y aplica bloqueo contra fuerza bruta."""
     try:
-        # Usamos engine.begin() para manejar la transacción de escritura/lectura en Neon
         with engine.begin() as conn:
             q_user = text("""
                 SELECT username, password_hash, nombre, rol, intentos_fallidos, bloqueado_hasta 
@@ -238,7 +244,6 @@ def login(usuario: str, password: str):
             """)
             result = conn.execute(q_user, {"u": usuario}).fetchone()
 
-            # Mitigación de Timing Attack: Si el usuario no existe, validamos contra DUMMY_HASH
             if not result:
                 check_password(password, DUMMY_HASH)
                 return False, "❌ Usuario o contraseña incorrectos."
@@ -246,14 +251,11 @@ def login(usuario: str, password: str):
             username, pass_hash, nombre, rol, intentos, bloqueado_hasta = result
             intentos = intentos or 0
 
-            # 1. Verificar si la cuenta está en periodo de bloqueo
             if bloqueado_hasta and datetime.now() < bloqueado_hasta:
                 tiempo_restante = int((bloqueado_hasta - datetime.now()).total_seconds() / 60) + 1
                 return False, f"🚫 Cuenta bloqueada por seguridad. Reintenta en {tiempo_restante} min."
 
-            # 2. Comprobar contraseña
             if check_password(password, pass_hash):
-                # Restablecer intentos al acertar
                 q_reset = text("""
                     UPDATE usuarios 
                     SET intentos_fallidos = 0, bloqueado_hasta = NULL 
@@ -261,17 +263,13 @@ def login(usuario: str, password: str):
                 """)
                 conn.execute(q_reset, {"u": usuario})
 
-                # Guardar datos en la sesión activa
                 st.session_state["sesion_valida"] = True
                 st.session_state["username_actual"] = username
                 st.session_state["usuario_actual"] = nombre
                 st.session_state["rol_actual"] = rol
                 return True, "¡Bienvenido al sistema!"
-
             else:
-                # Incremento de intentos fallidos
                 nuevos_intentos = intentos + 1
-
                 if nuevos_intentos >= MAX_INTENTOS:
                     bloqueo = datetime.now() + timedelta(minutes=TIEMPO_BLOQUEO_MINUTOS)
                     q_block = text("""
@@ -288,12 +286,11 @@ def login(usuario: str, password: str):
                     return False, f"❌ Usuario o contraseña incorrectos. Te quedan {intentos_restantes} intento(s)."
 
     except Exception as err:
-        # Registrar el error técnico en logs de servidor y responder algo genérico al usuario
         logging.error(f"Error de autenticación: {err}")
         return False, "⚠️ Error de conexión con el servicio de autenticación."
 
 # ---------------------------------------------------------
-# PANTALLA DE LOGIN (MEJORADA)
+# PANTALLA DE LOGIN
 # ---------------------------------------------------------
 if not st.session_state["sesion_valida"]:
     st.markdown("""
@@ -339,56 +336,30 @@ if not st.session_state["sesion_valida"]:
             box-shadow: 0 6px 15px rgba(30, 41, 59, 0.3) !important;
         }
         .app-title {
-            text-align: center;
-            color: #1e293b;
-            font-size: 1.8rem;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            margin-bottom: 2px;
+            text-align: center; color: #1e293b; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 2px;
         }
         .app-subtitle {
-            text-align: center;
-            color: #475569;
-            font-size: 0.85rem;
-            font-weight: 500;
-            margin-bottom: 25px;
-            letter-spacing: 0.5px;
+            text-align: center; color: #475569; font-size: 0.85rem; font-weight: 500; margin-bottom: 25px; letter-spacing: 0.5px;
         }
         .login-badge {
-            text-align: center;
-            font-size: 0.75rem;
-            color: #64748b;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 15px;
+            text-align: center; font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 15px;
         }
-        .footer-tag {
-            text-align: center;
-            font-size: 0.7rem;
-            color: #64748b;
-            margin-top: 15px;
-        }
+        .footer-tag { text-align: center; font-size: 0.7rem; color: #64748b; margin-top: 15px; }
         </style>
     """, unsafe_allow_html=True)
 
-    # Espaciador superior para centrar verticalmente la tarjeta
     st.markdown("<br><br>", unsafe_allow_html=True)
-
     col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
 
     with col_l2:
         with st.container(border=True):
-            # Encabezado con Marca / Título
             st.markdown("<div class='app-title'>🌊 HYDRO-MOTOR</div>", unsafe_allow_html=True)
             st.markdown("<div class='app-subtitle'>Mantenimiento Preventivo & Diagnóstico</div>", unsafe_allow_html=True)
-            
             st.markdown("<div class='login-badge'>— Iniciar Sesión —</div>", unsafe_allow_html=True)
 
             with st.form("form_login", clear_on_submit=False):
                 usr_input = st.text_input("👤 Usuario", placeholder="Ej. operador1")
                 pass_input = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
-                
                 st.markdown("<br>", unsafe_allow_html=True)
                 btn_login = st.form_submit_button("INGRESAR AL SISTEMA", use_container_width=True)
 
@@ -434,62 +405,51 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_l
     logout()
 
 # ---------------------------------------------------------
-# FUNCIONES AUXILIARES & CONSULTAS ELECTROMECÁNICAS
+# FUNCIONES AUXILIARES & CONSULTAS DE ACTIVOS
 # ---------------------------------------------------------
+
+def selector_equipo_por_serie(df_equipos_cat, key_widget="sel_eq_general"):
+    """Crea una etiqueta limpia (Posición + S/N) pero retorna el número de serie único."""
+    if df_equipos_cat.empty:
+        return None, None
+    
+    df_copy = df_equipos_cat.copy()
+    df_copy['label_display'] = (
+        df_copy['codigo_equipo'].astype(str).str.strip() + 
+        " — [S/N: " + df_copy['no_serie'].astype(str).str.strip() + 
+        "] (" + df_copy['ubicacion'].fillna('N/A').astype(str).str.strip() + ")"
+    )
+    
+    opciones = df_copy['label_display'].tolist()
+    seleccion = st.selectbox("Seleccionar Equipo / Motor *", opciones, key=key_widget)
+    
+    row_sel = df_copy[df_copy['label_display'] == seleccion].iloc[0]
+    return str(row_sel['no_serie']).strip(), str(row_sel['codigo_equipo']).strip()
 
 def generar_pdf_catalogo_general(df_equipos):
     buffer = BytesIO()
-    # Documento horizontal para que quepan holgadamente todas las columnas
     doc = SimpleDocTemplate(
-        buffer, 
-        pagesize=landscape(letter), 
+        buffer, pagesize=landscape(letter), 
         rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25
     )
     story = []
-    
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        textColor=colors.HexColor('#1E293B'),
-        spaceAfter=4
-    )
-    subtitle_style = ParagraphStyle(
-        'SubTitleStyle',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#64748B'),
-        spaceAfter=15
-    )
-    cell_style = ParagraphStyle(
-        'CellStyle',
-        parent=styles['Normal'],
-        fontSize=7,
-        leading=8
-    )
-    cell_header = ParagraphStyle(
-        'HeaderStyle',
-        parent=styles['Normal'],
-        fontSize=7.5,
-        leading=9,
-        fontName='Helvetica-Bold',
-        textColor=colors.white
-    )
+    
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E293B'), spaceAfter=4)
+    subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#64748B'), spaceAfter=15)
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=7, leading=8)
+    cell_header = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=7.5, leading=9, fontName='Helvetica-Bold', textColor=colors.white)
 
-    # Encabezado del reporte
     fecha_hoy = datetime.now().strftime("%d/%m/%Y %H:%M")
     story.append(Paragraph("📋 CATÁLOGO GENERAL DE EQUIPOS E INSTALACIONES ELÉCTRICAS", title_style))
-    story.append(Paragraph(f"Fecha de reporte: {fecha_hoy} | Total de equipos registrados: {len(df_equipos)}", subtitle_style))
+    story.append(Paragraph(f"Fecha de reporte: {fecha_hoy} | Total de activos: {len(df_equipos)}", subtitle_style))
 
-    # Encabezados de la tabla general
     headers = [
         Paragraph("Código", cell_header),
-        Paragraph("Ubicación / Área", cell_header),
+        Paragraph("S/N (Serie)", cell_header),
+        Paragraph("Ubicación", cell_header),
         Paragraph("Marca / Modelo", cell_header),
         Paragraph("Frame", cell_header),
-        Paragraph("Balero Sup.", cell_header),
-        Paragraph("Balero Inf.", cell_header),
         Paragraph("HP", cell_header),
         Paragraph("FLA (A)", cell_header),
         Paragraph("Breaker", cell_header),
@@ -500,7 +460,6 @@ def generar_pdf_catalogo_general(df_equipos):
     table_data = [headers]
 
     for _, row in df_equipos.iterrows():
-        # Formatear cableado (ej. 1x 3/0 AWG (Cu))
         hilos = int(row.get('conductores_por_fase', 1) or 1)
         cal = str(row.get('calibre_cable', '') or '-').strip()
         mat = str(row.get('material_conductor', '') or '').replace("Cobre (Cu)", "Cu").replace("Aluminio (Al)", "Al")
@@ -508,11 +467,10 @@ def generar_pdf_catalogo_general(df_equipos):
 
         fila = [
             Paragraph(str(row.get('codigo_equipo', '')), cell_style),
+            Paragraph(str(row.get('no_serie', '')), cell_style),
             Paragraph(str(row.get('ubicacion', '') or 'N/A'), cell_style),
             Paragraph(str(row.get('marca_modelo', '') or 'N/A'), cell_style),
             Paragraph(str(row.get('frame', '') or '-'), cell_style),
-            Paragraph(str(row.get('balero_superior', '') or '-'), cell_style),
-            Paragraph(str(row.get('balero_inferior', '') or '-'), cell_style),
             Paragraph(f"{row.get('potencia_hp', 0)}", cell_style),
             Paragraph(f"{row.get('corriente_nom', 0)} A", cell_style),
             Paragraph(f"{row.get('breaker_amp', 0)} A", cell_style),
@@ -521,9 +479,7 @@ def generar_pdf_catalogo_general(df_equipos):
         ]
         table_data.append(fila)
 
-    # Anchos de columna optimizados para hoja horizontal (Landscape Letter = 792 pt de ancho total)
-    col_widths = [65, 110, 95, 45, 60, 60, 35, 45, 45, 90, 60]
-    
+    col_widths = [60, 80, 100, 95, 45, 35, 45, 45, 90, 60]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
@@ -540,9 +496,7 @@ def generar_pdf_catalogo_general(df_equipos):
     buffer.seek(0)
     return buffer
 
-# La función debe declararse fuera del condicional 'elif'
 def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
-    """Calcula el porcentaje de desbalance según el estándar NEMA."""
     promedio = (v1 + v2 + v3) / 3.0
     if promedio == 0:
         return 0.0
@@ -550,29 +504,24 @@ def calcular_desbalance(v1: float, v2: float, v3: float) -> float:
     return round((max_desviacion / promedio) * 100, 2)
 
 def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha", key_suffix: str = "default") -> pd.DataFrame:
-    """Despliega widgets de filtrado rápido y devuelve el DataFrame filtrado."""
     if df.empty:
         return df
 
     c1, c2, c3 = st.columns(3)
-
-    # 1. Filtro por Equipo
-    col_equipo = "equipo" if "equipo" in df.columns else ("codigo_equipo" if "codigo_equipo" in df.columns else ("equipo_id" if "equipo_id" in df.columns else None))
+    col_equipo = "equipo" if "equipo" in df.columns else ("codigo_equipo" if "codigo_equipo" in df.columns else None)
     if col_equipo:
         lista_equipos = ["Todos"] + sorted([str(x) for x in df[col_equipo].dropna().unique()])
-        equipo_sel = c1.selectbox("Filtrar por Equipo:", lista_equipos, key=f"f_eq_{key_suffix}")
+        equipo_sel = c1.selectbox("Filtrar por Serie / Equipo:", lista_equipos, key=f"f_eq_{key_suffix}")
         if equipo_sel != "Todos":
             df = df[df[col_equipo].astype(str) == equipo_sel]
 
-    # 2. Filtro por Estado / Nivel de Riesgo (si existe en la tabla)
-    col_estado = "estado" if "estado" in df.columns else ("nivel_alerta" if "nivel_alerta" in df.columns else None)
+    col_estado = "estado" if "estado" in df.columns else ("estatus" if "estatus" in df.columns else None)
     if col_estado:
         lista_estados = ["Todos"] + sorted([str(x) for x in df[col_estado].dropna().unique()])
         estado_sel = c2.selectbox("Filtrar por Estado:", lista_estados, key=f"f_est_{key_suffix}")
         if estado_sel != "Todos":
             df = df[df[col_estado].astype(str) == estado_sel]
 
-    # 3. Filtro por Rango de Fechas
     if col_fecha in df.columns:
         df[col_fecha] = pd.to_datetime(df[col_fecha])
         fecha_min = df[col_fecha].min().date()
@@ -592,92 +541,50 @@ def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha", key_suffix
 
     return df
 
-def optimizar_dataframe_inspecciones(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica cálculos vectorizados para termografía."""
-    if df.empty:
-        return df
-
-    spot_cols = ['spot_1', 'spot_2', 'spot_3']
-    for col in spot_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna(0)
-
-    spots_matrix = df[['spot_1', 'spot_2', 'spot_3']].values
-    promedios = np.mean(spots_matrix, axis=1)
-    promedios_safe = np.where(promedios == 0, np.nan, promedios)
-
-    desviaciones = np.abs(spots_matrix - promedios[:, np.newaxis])
-    max_desviaciones = np.max(desviaciones, axis=1)
-
-    df['desbalance_max'] = (max_desviaciones / promedios_safe) * 100
-    df['desbalance_max'] = df['desbalance_max'].fillna(0).round(2)
-
-    if 'corriente_medida' in df.columns and 'corriente_nominal' in df.columns:
-        corr_nominal_safe = np.where(df['corriente_nominal'] == 0, np.nan, df['corriente_nominal'])
-        df['factor_carga'] = (df['corriente_medida'] / corr_nominal_safe) * 100
-        df['factor_carga'] = df['factor_carga'].fillna(0).round(2)
-
-    return df
-
 @st.cache_data(ttl=300)
 def obtener_datos():
-    """Consulta e inspecciones de bombas con cálculos totalmente vectorizados."""
+    """Consulta e inspecciones vinculadas por Número de Serie (no_serie)."""
     query = """
     SELECT 
         i.*,
         c.corriente_nom as corriente_nominal_cat,
-        c.voltaje_nom as voltaje_nominal_cat
+        c.voltaje_nom as voltaje_nominal_cat,
+        c.codigo_equipo as posicion_actual,
+        c.ubicacion as area_actual
     FROM inspecciones_bombas i
-    LEFT JOIN catalogo_equipos c ON TRIM(i.equipo) = TRIM(c.codigo_equipo)
+    LEFT JOIN catalogo_equipos c ON TRIM(i.equipo) = TRIM(c.no_serie)
     ORDER BY i.fecha DESC, i.id DESC;
     """
     df = pd.read_sql_query(query, engine)
     
     if not df.empty:
         df['equipo'] = df['equipo'].astype(str).str.strip()
-        
-        # Promedios vectorizados
         df['i_promedio'] = (df['i_a'] + df['i_b'] + df['i_c']) / 3.0
         df['v_promedio'] = (df['v_ab'] + df['v_bc'] + df['v_ca']) / 3.0
         
-        # Factor de carga vectorizado
         fla_ref = np.where(
             (df['corriente_nominal_cat'].notnull()) & (df['corriente_nominal_cat'] > 0),
-            df['corriente_nominal_cat'],
-            65.0
+            df['corriente_nominal_cat'], 65.0
         )
         df['factor_carga'] = ((df['i_promedio'] / fla_ref) * 100).round(2)
         
-        # Desbalance de corriente vectorizado (reemplaza .apply)
         i_matrix = df[['i_a', 'i_b', 'i_c']].values
         i_prom = df['i_promedio'].values
         i_prom_safe = np.where(i_prom == 0, np.nan, i_prom)
         max_dev_i = np.max(np.abs(i_matrix - i_prom[:, np.newaxis]), axis=1)
         df['desbalance_i'] = np.nan_to_num((max_dev_i / i_prom_safe) * 100).round(2)
-
-        # Potencia vectorizada (reemplaza .apply)
-        # Formula: (sqrt(3) * v_prom * i_prom * fp * eficiencia) / 1000.0
         df['potencia_kw'] = ((np.sqrt(3) * df['v_promedio'] * df['i_promedio'] * 0.85 * 0.90) / 1000.0).round(2)
         
     return df
 
 @st.cache_data
-def obtener_termografias(fecha_i=None, fecha_f=None):
+def obtener_termografias():
     try:
+        query = text("SELECT * FROM inspecciones_termograficas ORDER BY fecha_inspeccion DESC;")
         with engine.connect() as conn:
-            if fecha_i and fecha_f:
-                query = text("""
-                    SELECT * FROM inspecciones_termograficas 
-                    WHERE fecha_inspeccion BETWEEN :i AND :f 
-                    ORDER BY fecha_inspeccion DESC;
-                """)
-                df = pd.read_sql(query, conn, params={"i": fecha_i, "f": fecha_f})
-            else:
-                query = text("SELECT * FROM inspecciones_termograficas ORDER BY fecha_inspeccion DESC;")
-                df = pd.read_sql(query, conn)
-            return df
+            return pd.read_sql(query, conn)
     except Exception as e:
-        st.warning(f"No se pudieron cargar las inspecciones termográficas: {e}")
+        st.warning(f"No se pudieron cargar inspecciones termográficas: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
@@ -694,8 +601,7 @@ def obtener_pruebas_aislamiento():
     try:
         query = text("SELECT * FROM pruebas_aislamiento ORDER BY fecha_hora DESC;")
         with engine.connect() as conn:
-            df = pd.read_sql_query(query, conn)
-        return df
+            return pd.read_sql_query(query, conn)
     except Exception as e:
         st.error(f"Error al cargar historial de aislamiento: {e}")
         return pd.DataFrame()
@@ -714,6 +620,8 @@ def formatear_df_porcentajes(df):
         df_fmt["potencia_kw"] = df_fmt["potencia_kw"].map(lambda x: f"{x:.2f} kW" if pd.notnull(x) else "")
         
     df_fmt = df_fmt.rename(columns={
+        "equipo": "S/N Motor",
+        "posicion_actual": "Posición Actual",
         "desbalance_v_ff": "Desbal. V_FF (%)",
         "desbalance_v_fn": "Desbal. V_FN (%)",
         "desbalance_i": "Desbal. I (%)",
@@ -724,57 +632,23 @@ def formatear_df_porcentajes(df):
     return df_fmt
 
 # ---------------------------------------------------------
-# VISTA: DASHBOARD & KPIS (VISUALLY ENGAGING)
+# 1. DASHBOARD & KPIS
 # ---------------------------------------------------------
 if opcion == "Dashboard & KPIs":
     st.title("🌊 Monitoreo Eléctrico & KPIs de Confiabilidad")
     st.caption("Métricas evaluadas bajo estándares NEMA MG 1 e IEEE 141")
 
-    # Estilos CSS específicos para la vista del Dashboard (Cards y Badges)
     st.markdown("""
         <style>
-        .kpi-card {
-            background: rgba(255, 255, 255, 0.65);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            text-align: center;
-        }
-        .kpi-title {
-            font-size: 0.85rem;
-            color: #64748b;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .kpi-value {
-            font-size: 1.8rem;
-            font-weight: 800;
-            color: #1e293b;
-            margin: 8px 0;
-        }
-        .kpi-status {
-            font-size: 0.8rem;
-            font-weight: 600;
-            border-radius: 12px;
-            padding: 4px 12px;
-            display: inline-block;
-        }
+        .kpi-card { background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(10px); border-radius: 16px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        .kpi-title { font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-value { font-size: 1.8rem; font-weight: 800; color: #1e293b; margin: 8px 0; }
+        .kpi-status { font-size: 0.8rem; font-weight: 600; border-radius: 12px; padding: 4px 12px; display: inline-block; }
         .status-ok { background-color: #dcfce7; color: #166534; }
         .status-warning { background-color: #fef9c3; color: #854d0e; }
         .status-danger { background-color: #fee2e2; color: #991b1b; }
         .status-info { background-color: #e0f2fe; color: #0369a1; }
-        
-        .equipment-card {
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 14px;
-            padding: 15px;
-            border-left: 6px solid #cbd5e1;
-            margin-bottom: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-        }
+        .equipment-card { background: rgba(255, 255, 255, 0.5); border-radius: 14px; padding: 15px; border-left: 6px solid #cbd5e1; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
         .eq-border-ok { border-left-color: #22c55e !important; }
         .eq-border-warning { border-left-color: #eab308 !important; }
         .eq-border-danger { border-left-color: #ef4444 !important; }
@@ -782,7 +656,6 @@ if opcion == "Dashboard & KPIs":
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. FILTROS GLOBALES EN LA PARTE SUPERIOR
     with st.container():
         col_f1, col_f2, col_f3 = st.columns([1.5, 1.5, 1])
         with col_f1:
@@ -793,74 +666,33 @@ if opcion == "Dashboard & KPIs":
             st.markdown("<br>", unsafe_allow_html=True)
             btn_actualizar = st.button("🔄 Actualizar Datos", use_container_width=True)
 
-    # Cargar Datos desde BD de forma segura
     try:
         with engine.connect() as conn:
-            df_elec = pd.read_sql(
-                text("SELECT * FROM inspecciones_bombas WHERE fecha BETWEEN :i AND :f ORDER BY fecha DESC;"),
-                conn, params={"i": fecha_inicio, "f": fecha_fin}
-            )
-            df_termo = pd.read_sql(
-                text("SELECT * FROM inspecciones_termograficas WHERE fecha_inspeccion BETWEEN :i AND :f;"),
-                conn, params={"i": fecha_inicio, "f": fecha_fin}
-            )
+            df_elec = pd.read_sql(text("SELECT * FROM inspecciones_bombas WHERE fecha BETWEEN :i AND :f ORDER BY fecha DESC;"), conn, params={"i": fecha_inicio, "f": fecha_fin})
+            df_termo = pd.read_sql(text("SELECT * FROM inspecciones_termograficas WHERE fecha_inspeccion BETWEEN :i AND :f;"), conn, params={"i": fecha_inicio, "f": fecha_fin})
             df_equipos = pd.read_sql(text("SELECT * FROM catalogo_equipos;"), conn)
+            df_eventos_kpi = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
     except Exception as e:
         st.error(f"Error al cargar datos del Dashboard: {e}")
-        df_elec, df_termo, df_equipos = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-    # Cargar eventos activos para KPIs globales
-    try:
-        with engine.connect() as conn:
-            df_eventos_kpi = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
-    except Exception:
-        df_eventos_kpi = pd.DataFrame()
+        df_elec, df_termo, df_equipos, df_eventos_kpi = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     eventos_activos_kpi = pd.DataFrame()
     if not df_eventos_kpi.empty and 'equipo' in df_eventos_kpi.columns:
         df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
-        df_eventos_kpi['tipo_norm'] = df_eventos_kpi['tipo_evento'].astype(str).str.lower().str.strip()
         eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
 
-    # Cálculo de KPIs globales
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
-    equipos_standby = 0
-    equipos_fuera = 0
+    equipos_standby, equipos_fuera = 0, 0
 
-    col_estado_cat = None
-    if not df_equipos.empty:
-        for c in ['estatus', 'estado', 'estatus_operativo', 'condicion']:
-            if c in df_equipos.columns:
-                col_estado_cat = c
-                break
+    if not df_equipos.empty and 'estatus' in df_equipos.columns:
+        df_equipos['cat_estado_norm'] = df_equipos['estatus'].astype(str).str.lower().str.strip()
+        equipos_standby = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('standby|reserva', na=False)])
+        equipos_fuera = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('fuera|baja|paro', na=False)])
 
-    if col_estado_cat and not df_equipos.empty:
-        df_equipos['cat_estado_norm'] = df_equipos[col_estado_cat].astype(str).str.lower().str.strip()
-        equipos_standby = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('standby|reserva|espera', na=False)])
-        equipos_fuera = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('fuera|baja|inactivo|paro', na=False)])
-
-    alertas_criticas = 0
-    alertas_advertencia = 0
-
+    alertas_criticas, alertas_advertencia = 0, 0
     if not df_elec.empty and 'desbalance_i' in df_elec.columns:
         alertas_criticas += len(df_elec[df_elec['desbalance_i'] > 10.0])
         alertas_advertencia += len(df_elec[(df_elec['desbalance_i'] >= 5.0) & (df_elec['desbalance_i'] <= 10.0)])
-
-    if not df_termo.empty and 'estado' in df_termo.columns:
-        estado_upper = df_termo['estado'].astype(str).str.upper()
-        alertas_criticas += len(df_termo[estado_upper == 'CRITICO'])
-        alertas_advertencia += len(df_termo[estado_upper == 'ADVERTENCIA'])
-
-    if not eventos_activos_kpi.empty:
-        for _, ev in eventos_activos_kpi.iterrows():
-            estatus_ev = str(ev.get('estatus_norm', '')).lower()
-            tipo_ev = str(ev.get('tipo_norm', '')).lower()
-            desc_ev = str(ev.get('descripcion', '')).lower() + str(ev.get('observaciones', '')).lower()
-            
-            if any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
-                alertas_criticas += 1
-            elif 'revis' in estatus_ev or 'revis' in tipo_ev or 'abierto' in estatus_ev:
-                alertas_advertencia += 1
 
     if total_equipos > 0:
         penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
@@ -869,595 +701,261 @@ if opcion == "Dashboard & KPIs":
         salud_global = 100
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # Render de Tarjetas KPI estilo Glassmorphism (5 Columnas)
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-
     with kpi1:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Salud Global</div>
-                <div class='kpi-value'>{salud_global}%</div>
-                <span class='kpi-status {"status-ok" if salud_global > 85 else "status-warning" if salud_global > 70 else "status-danger"}'>
-                    {"🟢 Óptimo" if salud_global > 85 else "🟡 Atención" if salud_global > 70 else "🔴 Riesgo"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Salud Global</div><div class='kpi-value'>{salud_global}%</div><span class='kpi-status status-ok'>🟢 Óptimo</span></div>", unsafe_allow_html=True)
     with kpi2:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Total Equipos</div>
-                <div class='kpi-value'>{total_equipos}</div>
-                <span class='kpi-status status-ok'>⚙️ Registrados</span>
-            </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Activos</div><div class='kpi-value'>{total_equipos}</div><span class='kpi-status status-ok'>⚙️ Registrados</span></div>", unsafe_allow_html=True)
     with kpi3:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Standby / Reserva</div>
-                <div class='kpi-value' style='color: #0284c7;'>{equipos_standby}</div>
-                <span class='kpi-status status-info'>⏸️ Disponibles</span>
-            </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Standby</div><div class='kpi-value' style='color:#0284c7;'>{equipos_standby}</div><span class='kpi-status status-info'>⏸️ Reserva</span></div>", unsafe_allow_html=True)
     with kpi4:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Fuera de Servicio</div>
-                <div class='kpi-value' style='color: #ef4444;'>{equipos_fuera}</div>
-                <span class='kpi-status {"status-danger" if equipos_fuera > 0 else "status-ok"}'>
-                    {"🔴 Inactivos" if equipos_fuera > 0 else "🟢 Ninguno"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Fuera de Servicio</div><div class='kpi-value' style='color:#ef4444;'>{equipos_fuera}</div><span class='kpi-status status-danger'>🔴 Inactivos</span></div>", unsafe_allow_html=True)
     with kpi5:
-        st.markdown(f"""
-            <div class='kpi-card'>
-                <div class='kpi-title'>Alertas / Críticos</div>
-                <div class='kpi-value' style='color: #eab308;'>{alertas_criticas + alertas_advertencia}</div>
-                <span class='kpi-status {"status-warning" if (alertas_criticas + alertas_advertencia) > 0 else "status-ok"}'>
-                    {"⚠️ Pendientes" if (alertas_criticas + alertas_advertencia) > 0 else "🟢 Sin Alertas"}
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Alertas Activas</div><div class='kpi-value' style='color:#eab308;'>{alertas_criticas + alertas_advertencia}</div><span class='kpi-status status-warning'>⚠️ Pendientes</span></div>", unsafe_allow_html=True)
 
     st.markdown("<br><br>", unsafe_allow_html=True)
+    tab_fleet, tab_radar, tab_scatter = st.tabs(["🎛️ Estado de Equipos (Semáforo)", "📐 Diagrama Fasorial", "📈 Factor de Carga vs. Salud"])
 
-    # 3. DECLARACIÓN DE PESTAÑAS (DEBE IR ANTES DE USAR tab_fleet, tab_radar, tab_scatter)
-    tab_fleet, tab_radar, tab_scatter = st.tabs([
-        "🎛️ Estado de Equipos (Semáforo)", 
-        "📐 Diagrama Fasorial (Vectores)", 
-        "📈 Factor de Carga vs. Salud"
-    ])
-
-    # TAB 1: GRID DE EQUIPOS (SEMÁFORO Visual)
     with tab_fleet:
-        st.subheader("Estado de Salud y Disponibilidad por Ubicación / Área")
-        
+        st.subheader("Estado de Salud por Área y Posición Operativa")
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
-            try:
-                with engine.connect() as conn:
-                    df_eventos = pd.read_sql(text("SELECT * FROM registro_eventos;"), conn)
-            except Exception:
-                df_eventos = pd.DataFrame()
-
-            if not df_eventos.empty and 'equipo' in df_eventos.columns:
-                df_eventos['estatus_norm'] = df_eventos['estatus'].astype(str).str.lower().str.strip()
-                df_eventos['tipo_norm'] = df_eventos['tipo_evento'].astype(str).str.lower().str.strip()
-
-                df_ev_sorted = df_eventos.sort_values('fecha_hora', ascending=False)
-                eventos_activos = df_ev_sorted[~df_ev_sorted['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
-            else:
-                eventos_activos = pd.DataFrame()
-
-            if not eventos_activos.empty:
-                eq_en_revision = eventos_activos[
-                    eventos_activos['estatus_norm'].str.contains('revis', na=False) | 
-                    eventos_activos['tipo_norm'].str.contains('revis', na=False)
-                ]
-
-                if not eq_en_revision.empty:
-                    codigos_rev = ", ".join(eq_en_revision['equipo'].unique().tolist())
-                    st.warning(f"🔍 **Equipos activos 'En Revisión' ({len(eq_en_revision)}):** {codigos_rev}")
-                else:
-                    st.info("ℹ️ No hay eventos pendientes con estado 'En Revisión'.")
-            else:
-                st.info("ℹ️ Todos los eventos en la base de datos están 'Resueltos' o no hay registros.")
-
-            st.divider()
-
-            # Normalizar ubicaciones para un agrupamiento limpio
-            df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
+            df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
             ubicaciones = sorted(df_equipos['ubicacion'].unique())
-
-            # Filtro opcional por área en el Dashboard
-            filtro_ubicacion_dash = st.selectbox(
-                "Filtrar vista de tarjetas por área específica:", 
-                ["Todas las áreas"] + list(ubicaciones),
-                key="filtro_ubicacion_dash_fleet"
-            )
-
-            st.divider()
-
-            # Definir qué grupos mostrar según el filtro
-            if filtro_ubicacion_dash != "Todas las áreas":
-                df_grupos_a_mostrar = {filtro_ubicacion_dash: df_equipos[df_equipos['ubicacion'] == filtro_ubicacion_dash]}
-            else:
-                df_grupos_a_mostrar = {ub: df_equipos[df_equipos['ubicacion'] == ub] for ub in ubicaciones}
-
-            # Renderizar las tarjetas agrupadas por expanders de ubicación
-            for ub, df_grupo in df_grupos_a_mostrar.items():
-                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
+            for ub in ubicaciones:
+                df_grupo = df_equipos[df_equipos['ubicacion'] == ub]
+                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} activos)", expanded=True):
                     cols_grid = st.columns(3)
                     for idx, row in df_grupo.reset_index(drop=True).iterrows():
                         col_idx = idx % 3
-                        eq_code = row['codigo_equipo']
-                        
+                        serial = row['no_serie']
+                        codigo = row['codigo_equipo']
+                        badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
                         st_color = "eq-border-ok"
-                        badge_txt = "🟢 Normal"
+                        
+                        if "fuera" in str(row.get('estatus', '')).lower():
+                            st_color = "eq-border-danger"
+                            badge_txt = "🔴 Fuera de Servicio"
+                        elif "standby" in str(row.get('estatus', '')).lower():
+                            st_color = "eq-border-standby"
+                            badge_txt = "⏸️ Standby"
 
-                        if col_estado_cat:
-                            estado_base = str(row.get(col_estado_cat, '')).lower().strip()
-                            if any(term in estado_base for term in ['standby', 'reserva', 'espera']):
-                                st_color = "eq-border-standby"
-                                badge_txt = "⏸️ Standby"
-                            elif any(term in estado_base for term in ['fuera', 'baja', 'inactivo', 'paro', 'fuera de servicio']):
-                                st_color = "eq-border-danger"
-                                badge_txt = "🔴 Fuera de Servicio"
-
-                        ev_eq = eventos_activos[eventos_activos['equipo'] == eq_code] if not eventos_activos.empty else pd.DataFrame()
-
-                        if not ev_eq.empty:
-                            ultimo_ev = ev_eq.iloc[0]
-                            estatus_ev = str(ultimo_ev.get('estatus_norm', '')).lower()
-                            tipo_ev = str(ultimo_ev.get('tipo_norm', '')).lower()
-                            desc_ev = str(ultimo_ev.get('descripcion', '')).lower() + str(ultimo_ev.get('observaciones', '')).lower()
-
-                            if 'revis' in estatus_ev or 'revis' in tipo_ev:
-                                st_color = "eq-border-warning"
-                                badge_txt = "🔍 En Revisión"
-                            elif any(term in tipo_ev or term in desc_ev for term in ['fuga', 'aceite', 'daño', 'falla', 'paro', 'fuera', 'critico', 'grave']):
-                                st_color = "eq-border-danger"
-                                badge_txt = "🔴 Evento Crítico"
-                            elif 'abierto' in estatus_ev:
-                                st_color = "eq-border-danger"
-                                badge_txt = "⚠️ Evento Abierto"
-
-                        if badge_txt == "🟢 Normal" and not df_elec.empty:
-                            eq_data = df_elec[df_elec['equipo'] == eq_code]
-                            if not eq_data.empty:
-                                last_desb = eq_data.iloc[0].get('desbalance_i', 0) or 0
-                                if last_desb > 10.0:
-                                    st_color = "eq-border-danger"
-                                    badge_txt = f"🔴 Desbalance I: {last_desb:.1f}%"
-                                elif last_desb >= 5.0:
-                                    st_color = "eq-border-warning"
-                                    badge_txt = f"🟡 Desbalance I: {last_desb:.1f}%"
-                                    
                         with cols_grid[col_idx]:
                             st.markdown(f"""
                                 <div class='equipment-card {st_color}'>
-                                    <strong style='font-size: 1.1rem; color: #1e293b;'>{eq_code}</strong><br>
-                                    <span style='font-size: 0.85rem; color: #64748b;'>{row.get('marca_modelo', 'Modelo N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                                    <strong style='font-size: 1.1rem; color: #1e293b;'>{codigo}</strong> 
+                                    <span style='font-size: 0.8rem; color: #64748b;'>(S/N: {serial})</span><br>
+                                    <span style='font-size: 0.85rem; color: #475569;'>{row.get('marca_modelo', 'N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
                                     <div style='margin-top: 8px;'>
-                                        <span class='kpi-status' style='font-size:0.75rem; background: #f1f5f9; color: #334155;'>
-                                            Ubicación: {row.get('ubicacion', 'N/A')}
-                                        </span>
+                                        <span class='kpi-status' style='background: #f1f5f9; color: #334155;'>FLA: {row.get('corriente_nom', 0)} A</span>
                                         <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
-                            
-    # TAB 2: DIAGRAMA FASORIAL / VECTORES
+
     with tab_radar:
         st.subheader("📐 Diagrama Fasorial Trifásico")
-        
-        df_insp = obtener_datos() if 'obtener_datos' in globals() else df_elec
-        
-        if df_insp is None or df_insp.empty:
-            st.info("No hay registros de inspección disponibles.")
+        df_insp = obtener_datos()
+        if df_insp.empty:
+            st.info("No hay registros de inspección.")
         else:
             df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
-            
             col_eq, col_tipo = st.columns([2, 1])
             with col_eq:
-                equipos_disponibles = df_reciente['equipo'].unique().tolist()
-                equipo_sel = st.selectbox("Selecciona equipo:", equipos_disponibles, key="select_fasorial")
+                equipo_sel = st.selectbox("Selecciona S/N Motor:", df_reciente['equipo'].unique().tolist(), key="select_fasorial")
             with col_tipo:
-                tipo_param = st.radio("Métrica a evaluar:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
+                tipo_param = st.radio("Parámetro:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
             
             datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
-            
             if tipo_param == "Corriente (A)":
-                f1 = float(datos_eq.get('i_a', datos_eq.get('i_l1', 0)))
-                f2 = float(datos_eq.get('i_b', datos_eq.get('i_l2', 0)))
-                f3 = float(datos_eq.get('i_c', datos_eq.get('i_l3', 0)))
+                magnitudes = [float(datos_eq.get('i_a', 0)), float(datos_eq.get('i_b', 0)), float(datos_eq.get('i_c', 0))]
                 unidad = "A"
-                titulo_graf = f"Vectores de Corriente - {equipo_sel}"
             else:
-                f1 = float(datos_eq.get('v_ab', datos_eq.get('v_l1', 0)))
-                f2 = float(datos_eq.get('v_bc', datos_eq.get('v_l2', 0)))
-                f3 = float(datos_eq.get('v_ca', datos_eq.get('v_l3', 0)))
+                magnitudes = [float(datos_eq.get('v_ab', 0)), float(datos_eq.get('v_bc', 0)), float(datos_eq.get('v_ca', 0))]
                 unidad = "V"
-                titulo_graf = f"Vectores de Voltaje - {equipo_sel}"
-            
-            angulos = [0, 120, 240]
-            magnitudes = [f1, f2, f3]
-            fases = ['Fase A (L1)', 'Fase B (L2)', 'Fase C (L3)']
-            colores = ['#e74c3c', '#f1c40f', '#3498db']
-            
+
             fig_vector = go.Figure()
-            for ang, mag, fase, color in zip(angulos, magnitudes, fases, colores):
-                fig_vector.add_trace(go.Scatterpolar(
-                    r=[0, mag],
-                    theta=[ang, ang],
-                    mode='lines+markers',
-                    name=f"{fase}: {mag:.1f} {unidad}",
-                    line=dict(color=color, width=4),
-                    marker=dict(size=8, symbol='arrow-bar-up')
-                ))
+            for ang, mag, fase, color in zip([0, 120, 240], magnitudes, ['Fase A', 'Fase B', 'Fase C'], ['#e74c3c', '#f1c40f', '#3498db']):
+                fig_vector.add_trace(go.Scatterpolar(r=[0, mag], theta=[ang, ang], mode='lines+markers', name=f"{fase}: {mag:.1f} {unidad}", line=dict(color=color, width=4)))
             
-            fig_vector.update_layout(
-                polar=dict(
-                    radialaxis=dict(visible=True, range=[0, max(magnitudes) * 1.15 if max(magnitudes) > 0 else 10], title=f"Magnitud ({unidad})"),
-                    angularaxis=dict(tickmode='array', tickvals=[0, 120, 240], ticktext=['0° (L1)', '120° (L2)', '240° (L3)'], direction="counterclockwise")
-                ),
-                height=450,
-                title=titulo_graf,
-                showlegend=True,
-                legend=dict(orientation="h", y=-0.1)
-            )
+            fig_vector.update_layout(polar=dict(radialaxis=dict(visible=True), angularaxis=dict(tickvals=[0, 120, 240], ticktext=['0° (L1)', '120° (L2)', '240° (L3)'])), height=400)
             st.plotly_chart(fig_vector, use_container_width=True)
 
-    # TAB 3: ANÁLISIS DE PARÁMETROS OPERATIVOS
     with tab_scatter:
         st.subheader("📈 Análisis de Parámetros Operativos")
-        df_insp = obtener_datos() if 'obtener_datos' in globals() else df_elec
-        
-        if df_insp is None or df_insp.empty:
-            st.info("No hay registros de inspección disponibles.")
-        else:
-            df_graficas = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
-            col_g1, col_g2 = st.columns(2)
-
-            with col_g1:
-                st.markdown("##### ⚡ Factor de Carga (%) por Equipo")
-                fig_fc = px.bar(
-                    df_graficas, x='equipo', y='factor_carga', color='factor_carga',
-                    color_continuous_scale='Blues', text_auto='.1f',
-                    labels={'factor_carga': 'Factor Carga (%)', 'equipo': 'Equipo'},
-                    title="Carga Operativa Actual vs Capacidad Nom."
-                )
-                fig_fc.add_hline(y=100.0, line_dash="dash", line_color="red", annotation_text="100% Carga Nom.")
-                fig_fc.add_hline(y=50.0, line_dash="dot", line_color="orange", annotation_text="Sub-operación (<50%)")
-                fig_fc.update_layout(showlegend=False, height=380)
+        df_insp = obtener_datos()
+        if not df_insp.empty:
+            df_graf = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            c_g1, c_g2 = st.columns(2)
+            with c_g1:
+                fig_fc = px.bar(df_graf, x='equipo', y='factor_carga', color='factor_carga', title="Factor de Carga (%) por S/N Motor")
                 st.plotly_chart(fig_fc, use_container_width=True)
+            with c_g2:
+                fig_db = px.bar(df_graf, x='equipo', y='desbalance_i', color='desbalance_i', title="Desbalance de Corriente (%) por S/N Motor")
+                st.plotly_chart(fig_db, use_container_width=True)
 
-            with col_g2:
-                st.markdown("##### ⚖️ Desbalance de Corriente (%) por Equipo")
-                fig_desb = px.bar(
-                    df_graficas, x='equipo', y='desbalance_i', color='desbalance_i',
-                    color_continuous_scale='Reds', text_auto='.1f',
-                    labels={'desbalance_i': 'Desbalance (%)', 'equipo': 'Equipo'},
-                    title="Desbalance Eléctrico Trifásico Actual"
-                )
-                fig_desb.add_hline(y=5.0, line_dash="dash", line_color="orange", annotation_text="Alarma IEEE (5%)")
-                fig_desb.add_hline(y=10.0, line_dash="dash", line_color="red", annotation_text="Crítico NEMA (10%)")
-                fig_desb.update_layout(showlegend=False, height=380)
-                st.plotly_chart(fig_desb, use_container_width=True)
-                
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
 # ---------------------------------------------------------
 elif opcion == "Catálogo de Equipos":
-    st.title("🏷️ Catálogo de Placas de Datos e Instalación Eléctrica")
+    st.title("🏷️ Catálogo General de Activos e Instalación Eléctrica")
 
     tab1, tab2, tab3 = st.tabs([
         "📋 Lista de Equipos Registrados", 
-        "➕ Registrar Equipo e Instalación",
-        "🛠️ Modificar / Eliminar Equipo"
+        "➕ Registrar Nuevo Motor / Bomba",
+        "🛠️ Modificar / Reubicar Activo"
     ])
 
-    # --- TAB 1: LISTADO Y AGRUPACIÓN POR UBICACIÓN ---
     with tab1:
         df_eq = obtener_equipos()
         if df_eq.empty:
-            st.info("No hay equipos registrados en el catálogo.")
+            st.info("No hay equipos en el catálogo.")
         else:
             col_t1, col_t2 = st.columns([3, 1])
             with col_t1:
-                st.subheader("📍 Equipos Agrupados por Ubicación / Área")
+                st.subheader("📍 Activos Organizados por Ubicación / Área")
             with col_t2:
-                # Generar el PDF global en memoria
-                pdf_catalogo_bytes = generar_pdf_catalogo_general(df_eq)
-                st.download_button(
-                    label="📄 Exportar Catálogo Completo (PDF)",
-                    data=pdf_catalogo_bytes,
-                    file_name=f"catalogo_general_equipos_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="btn_download_pdf_catalogo_general"
-                )
+                pdf_bytes = generar_pdf_catalogo_general(df_eq)
+                st.download_button("📄 Exportar PDF Catálogo", data=pdf_bytes, file_name=f"catalogo_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", use_container_width=True)
 
-            # Limpiar y normalizar la columna de ubicación para evitar errores por espacios o nulos
-            df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación Asignada").astype(str).str.strip()
-            
-            # Obtener la lista de ubicaciones únicas ordenadas
-            ubicaciones = sorted(df_eq['ubicacion'].unique())
-            
-            # Selector opcional para filtrar por un área en específico
-            filtro_ubicacion = st.selectbox(
-                "Filtrar vista por área específica:", 
-                ["Todas las áreas"] + list(ubicaciones),
-                key="filtro_ubicacion_tab1"
-            )
-            
-            st.divider()
-            
-            # Si el usuario elige un área en particular, mostramos solo esa
-            if filtro_ubicacion != "Todas las áreas":
-                df_filtrado = df_eq[df_eq['ubicacion'] == filtro_ubicacion]
-                st.markdown(f"### 🏭 {filtro_ubicacion}")
-                st.dataframe(df_filtrado, width="stretch")
-                st.caption(f"Total de equipos en esta área: {len(df_filtrado)}")
-            else:
-                # Si selecciona "Todas", se despliega un expander ordenado por cada ubicación
-                for ub in ubicaciones:
-                    df_grupo = df_eq[df_eq['ubicacion'] == ub]
-                    
-                    with st.expander(f"📍 Área: {ub} ({len(df_grupo)} equipos registrados)", expanded=True):
-                        st.dataframe(df_grupo, width="stretch")
+            df_eq['ubicacion'] = df_eq['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
+            for ub in sorted(df_eq['ubicacion'].unique()):
+                df_grupo = df_eq[df_eq['ubicacion'] == ub]
+                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} activos registrados)", expanded=True):
+                    st.dataframe(df_grupo, use_container_width=True)
 
-    # --- TAB 2: ALTA DE EQUIPO (SECUENCIA DE CADENA DE FUERZA) ---
     with tab2:
-        st.subheader("Alta de Equipo, Protecciones y Parámetros Eléctricos")
+        st.subheader("Alta de Equipo por Número de Serie")
         with st.form("form_nuevo_equipo", clear_on_submit=True):
-            
-            # PASO 1: DATOS DE PLACA DE MOTOR / BOMBA
-            st.markdown("##### ⚙️ 1. Carga Final (Motor / Bomba)")
-            col_e1, col_e2 = st.columns(2)
-            
-            with col_e1:
-                cod_eq = st.text_input("Identificador del Equipo *", placeholder="Ej. Pozo-01, M-36A")
-                ubic = st.text_input("Ubicación en Planta / Área *", placeholder="Ej. NS-26/Carcamo Nuevo Vaso")
-                marca_m = st.text_input("Marca / Modelo del Motor", placeholder="Ej. Moody / Warman / Siemens")
-                no_serie = st.text_input("Número de Serie", placeholder="Ej. SN-8894021")
-                frame_m = st.text_input("Armazón / Frame (NEMA/IEC)", placeholder="Ej. 326T, 256TC")
+            st.markdown("##### ⚙️ 1. Placa de Datos del Motor / Bomba")
+            c_e1, c_e2 = st.columns(2)
+            with c_e1:
+                no_serie = st.text_input("Número de Serie (Llave Máster) *", placeholder="Ej. SN-8894021")
+                cod_eq = st.text_input("Posición Operativa / Área *", placeholder="Ej. M-16, Pozo-01")
+                ubic = st.text_input("Ubicación Física en Planta", placeholder="Ej. Carcamo Vaso Nuevo")
+                marca_m = st.text_input("Marca / Modelo", placeholder="Ej. Siemens / WEG")
+                frame_m = st.text_input("Armazón / Frame", placeholder="Ej. 326T")
                 balero_sup = st.text_input("Balero Superior", placeholder="Ej. 6219 C3")
                 balero_inf = st.text_input("Balero Inferior", placeholder="Ej. 7226 2P7A")
-                estatus_e = st.selectbox("Estatus Operativo", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
+                estatus_e = st.selectbox("Estatus Operativo Inicial", ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"])
 
-            with col_e2:
+            with c_e2:
                 pot_hp = st.number_input("Potencia (HP)", value=175.0, step=5.0)
                 v_nom = st.number_input("Voltaje Nominal (V)", value=440.0, step=10.0)
                 i_nom = st.number_input("Corriente Nominal / FLA (A) *", value=220.0, step=1.0)
-                rpm_e = st.number_input("Velocidad Nominal (RPM)", value=1750, step=50)
+                rpm_e = st.number_input("RPM", value=1750, step=50)
                 fs_e = st.number_input("Factor de Servicio (F.S.)", value=1.15, step=0.05)
 
             st.divider()
+            st.markdown("##### ⚡ 2. Protecciones y CCM")
+            c_p1, c_p2 = st.columns(2)
+            breaker_a = c_p1.number_input("ITM Principal (A)", value=350.0, step=5.0)
+            sobrecarga_a = c_p2.number_input("Ajuste Protección / Fusible (A)", value=220.0, step=1.0)
 
-            # PASO 2: DISPOSITIVOS DE PROTECCIÓN Y MANIOBRA (CCM)
-            st.markdown("##### ⚡ 2. Protecciones y Maniobra en CCM (ITM, Fusibles y Arrancador)")
-            col_p1, col_p2 = st.columns(2)
+            st.markdown("##### 🔌 3. Alimentación")
+            c_c1, c_c2 = st.columns(2)
+            calibre_c = c_c1.text_input("Calibre Conductor", value="3/0 AWG")
+            material_c = c_c1.selectbox("Material Conductor", ["Cobre (Cu)", "Aluminio (Al)"])
+            hilos_fase = c_c2.number_input("Conductores por Fase", value=1, min_value=1, max_value=6)
+            dist_m = c_c2.number_input("Distancia a CCM (m)", value=35.0, step=5.0)
 
-            with col_p1:
-                breaker_a = st.number_input("ITM Principal (A)", value=350.0, step=5.0, help="Capacidad nominal del interruptor principal")
-                
-                # Selector de tipo de protección para incluir fusibles, LSIG, etc.
-                tipo_proteccion = st.selectbox(
-                    "Esquema de Protección Secundaria", 
-                    [
-                        "Fusibles de Protección",
-                        "ITM Electrónico (LSIG)", 
-                        "ITM Termomagnético / Magnético", 
-                        "Relevador Térmico de Sobrecarga"
-                    ],
-                    key="sel_tipo_prot_nuevo" # Asegúrate de usar una key única o distinta en tab2 y tab3 si es necesario
-                )
+            obs_eq = st.text_area("Observaciones Adicionales")
 
-            with col_p2:
-                if tipo_proteccion == "Fusibles de Protección":
-                    sobrecarga_a = st.number_input("Capacidad de los Fusibles (A)", value=250.0, step=5.0, help="Corriente nominal del cartucho fusible instalado")
-                elif tipo_proteccion == "ITM Electrónico (LSIG)":
-                    sobrecarga_a = st.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=220.0, step=1.0, help="Ajuste de corriente en la unidad electrónica")
-                else:
-                    sobrecarga_a = st.number_input("Ajuste / Capacidad Protección (A)", value=220.0, step=1.0, help="Corriente de disparo configurada")
-
-            # PASO 3: CABLEADO Y LÍNEA DE ALIMENTACIÓN
-            st.markdown("##### 🔌 3. Cableado y Línea de Alimentación")
-            col_c1, col_c2 = st.columns(2)
-
-            with col_c1:
-                calibre_c = st.text_input("Calibre de Conductor", placeholder="Ej. 3/0 AWG, 250 kcmil, 500 kcmil")
-                material_c = st.selectbox("Material del Conductor", ["Cobre (Cu)", "Aluminio (Al)"])
-
-            with col_c2:
-                hilos_fase = st.number_input("Conductores por Fase", value=1, min_value=1, max_value=6, step=1, help="Número de cables en paralelo por fase")
-                dist_m = st.number_input("Distancia desde CCM / Tablero (m)", value=35.0, step=5.0, help="Distancia lineal de cableado")
-
-            st.divider()
-
-            obs_eq = st.text_area(
-                "Observaciones Adicionales (Infraestructura compartida o notas técnicas)",
-                placeholder="Ej. Comparte ITM principal y arrancador suave con M-36B y M-36C mediante conexión rotativa en campo."
-            )
-            
-            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR ---
-            col_btn1, col_btn2 = st.columns(2)
-            btn_guardar_eq = col_btn1.form_submit_button("💾 Guardar en Catálogo", use_container_width=True)
-            btn_cancelar_eq = col_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
+            c_b1, c_b2 = st.columns(2)
+            btn_guardar_eq = c_b1.form_submit_button("💾 Guardar en Catálogo", use_container_width=True)
+            btn_cancelar_eq = c_b2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
 
             if btn_cancelar_eq:
-                st.warning("Acción de registro cancelada.")
+                st.warning("Registro cancelado.")
                 st.rerun()
 
             if btn_guardar_eq:
-                if not cod_eq.strip():
-                    st.error("El Identificador del Equipo es obligatorio.")
+                if not no_serie.strip() or not cod_eq.strip():
+                    st.error("El Número de Serie y la Posición Operativa son obligatorios.")
                 else:
                     q_ins_eq = text("""
                     INSERT INTO catalogo_equipos (
                         codigo_equipo, ubicacion, marca_modelo, no_serie, frame, 
-                        balero_superior, balero_inferior,
-                        potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, 
+                        balero_superior, balero_inferior, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio, 
                         estatus, breaker_amp, overload_setting, calibre_cable, material_conductor,
                         conductores_por_fase, distancia_m, observaciones
                     ) VALUES (
-                        :cod, :ub, :mm, :ns, :fr, 
-                        :bsup, :binf,
-                        :php, :vnom, :inom, :rpm, :fs, 
-                        :est, :brk, :ovl, :cal, :mat,
-                        :hilos, :dist, :obs
+                        :cod, :ub, :mm, :ns, :fr, :bsup, :binf, :php, :vnom, :inom, :rpm, :fs, 
+                        :est, :brk, :ovl, :cal, :mat, :hilos, :dist, :obs
                     );
                     """)
-                    
                     try:
                         with engine.begin() as conn:
                             conn.execute(q_ins_eq, {
-                                "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
-                                "fr": frame_m, "bsup": balero_sup.strip(), "binf": balero_inferior.strip() if 'balero_inferior' in locals() else balero_inf.strip(),
-                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
-                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
-                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
-                                "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
-                                "obs": obs_eq
-                            })
-
-                        st.cache_data.clear()
-                        st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar en la base de datos: {e}")
-                    
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(q_ins_eq, {
-                                "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie,
+                                "cod": cod_eq.strip(), "ub": ubic, "mm": marca_m, "ns": no_serie.strip(),
                                 "fr": frame_m, "bsup": balero_sup.strip(), "binf": balero_inf.strip(),
-                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, 
-                                "rpm": rpm_e, "fs": fs_e, "est": estatus_e,
-                                "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
-                                "mat": material_c, "hilos": hilos_fase, "dist": dist_m,
-                                "obs": obs_eq
+                                "php": pot_hp, "vnom": v_nom, "inom": i_nom, "rpm": rpm_e, "fs": fs_e,
+                                "est": estatus_e, "brk": breaker_a, "ovl": sobrecarga_a, "cal": calibre_c,
+                                "mat": material_c, "hilos": hilos_fase, "dist": dist_m, "obs": obs_eq
                             })
-
                         st.cache_data.clear()
-                        st.success(f"✅ Equipo **{cod_eq.strip()}** guardado exitosamente.")
+                        st.success(f"✅ Motor con S/N **{no_serie.strip()}** guardado correctamente.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al guardar en la base de datos: {e}")
+                        st.error(f"❌ Error al guardar en base de datos: {e}")
 
-# --- TAB 3: EDICIÓN Y ELIMINACIÓN DE REGISTROS ---
     with tab3:
         df_eq = obtener_equipos()
         if df_eq.empty:
-            st.info("No hay equipos en el catálogo para editar o eliminar.")
+            st.info("No hay activos registrados para editar.")
         else:
-            st.subheader("🛠️ Gestor de Placas e Instalaciones Registradas")
-            lista_codigos = df_eq['codigo_equipo'].tolist()
-            eq_sel_cod = st.selectbox("Selecciona el Identificador del Equipo:", lista_codigos, key="sel_eq_gestor_tab3")
+            st.subheader("🛠️ Gestor de Activos y Reubicaciones (Por Número de Serie)")
+            
+            df_eq['label_gestor'] = "S/N: " + df_eq['no_serie'].astype(str).str.strip() + " | Posición Actual: " + df_eq['codigo_equipo'].astype(str).str.strip()
+            label_sel = st.selectbox("Selecciona el Activo:", df_eq['label_gestor'].tolist(), key="sel_gestor_sn")
+            
+            eq_reg = df_eq[df_eq['label_gestor'] == label_sel].iloc[0]
+            target_sn = str(eq_reg['no_serie']).strip()
 
-            eq_registro = df_eq[df_eq['codigo_equipo'] == eq_sel_cod].iloc[0]
+            c_edit, c_del = st.columns(2)
 
-            col_edit_eq, col_del_eq = st.columns(2)
-
-            with col_edit_eq:
-                with st.expander("✏️ Editar Ficha del Equipo e Instalación", expanded=True):
-                    with st.form(f"form_edit_eq_{eq_registro['codigo_equipo']}"):
+            with c_edit:
+                with st.expander("✏️ Editar Ficha o Cambiar de Posición (Reubicar)", expanded=True):
+                    with st.form(f"form_edit_sn_{target_sn}"):
+                        st.info(f"🔑 **Número de Serie Master:** {target_sn}")
                         
-                        st.markdown("##### ⚙️ 1. Placa de Datos del Motor")
-                        edit_ubic = st.text_input("Ubicación en Planta / Área", value=str(eq_registro.get('ubicacion', '') or ""))
-                        edit_marca_m = st.text_input("Marca / Modelo", value=str(eq_registro.get('marca_modelo', '') or ""))
-                        edit_no_serie = st.text_input("Número de Serie", value=str(eq_registro.get('no_serie', '') or ""))
-                        
-                        val_frame = str(eq_registro.get('frame', '')) if pd.notna(eq_registro.get('frame', '')) else ""
-                        edit_frame = st.text_input("Armazón / Frame (NEMA/IEC)", value=val_frame)
-                        
-                        val_bsup = str(eq_registro.get('balero_superior', '')) if pd.notna(eq_registro.get('balero_superior', '')) else ""
-                        edit_balero_sup = st.text_input("Balero Superior", value=val_bsup)
-                        
-                        val_binf = str(eq_registro.get('balero_inferior', '')) if pd.notna(eq_registro.get('balero_inferior', '')) else ""
-                        edit_balero_inf = st.text_input("Balero Inferior", value=val_binf)
+                        edit_pos = st.text_input("Posición Operativa / Código (ej. M-29)", value=str(eq_reg.get('codigo_equipo', '') or ""))
+                        edit_ubic = st.text_input("Ubicación en Planta", value=str(eq_reg.get('ubicacion', '') or ""))
+                        edit_marca = st.text_input("Marca / Modelo", value=str(eq_reg.get('marca_modelo', '') or ""))
+                        edit_frame = st.text_input("Armazón / Frame", value=str(eq_reg.get('frame', '') or ""))
+                        edit_bsup = st.text_input("Balero Superior", value=str(eq_reg.get('balero_superior', '') or ""))
+                        edit_binf = st.text_input("Balero Inferior", value=str(eq_reg.get('balero_inferior', '') or ""))
                         
                         estatus_op = ["Operativo", "En Mantenimiento", "Fuera de Servicio", "Standby"]
-                        val_est = eq_registro.get('estatus', 'Operativo')
+                        val_est = eq_reg.get('estatus', 'Operativo')
                         idx_est = estatus_op.index(val_est) if val_est in estatus_op else 0
-                        edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est, key=f"est_edit_{eq_registro['codigo_equipo']}")
+                        edit_estatus = st.selectbox("Estatus Operativo", estatus_op, index=idx_est)
 
                         c_eq1, c_eq2 = st.columns(2)
-                        edit_pot_hp = c_eq1.number_input("Potencia (HP)", value=float(eq_registro.get('potencia_hp', 0.0) or 0.0), step=5.0, key=f"pot_edit_{eq_registro['codigo_equipo']}")
-                        edit_v_nom = c_eq2.number_input("Voltaje Nominal (V)", value=float(eq_registro.get('voltaje_nom', 0.0) or 0.0), step=10.0, key=f"vnom_edit_{eq_registro['codigo_equipo']}")
+                        edit_pot = c_eq1.number_input("Potencia (HP)", value=float(eq_reg.get('potencia_hp', 0.0) or 0.0))
+                        edit_vnom = c_eq2.number_input("Voltaje (V)", value=float(eq_reg.get('voltaje_nom', 0.0) or 0.0))
                         
                         c_eq3, c_eq4 = st.columns(2)
-                        edit_i_nom = c_eq3.number_input("Corriente Nominal / FLA (A)", value=float(eq_registro.get('corriente_nom', 0.0) or 0.0), step=1.0, key=f"inom_edit_{eq_registro['codigo_equipo']}")
-                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_registro.get('rpm', 0) or 0), step=50, key=f"rpm_edit_{eq_registro['codigo_equipo']}")
+                        edit_inom = c_eq3.number_input("Corriente Nominal (A)", value=float(eq_reg.get('corriente_nom', 0.0) or 0.0))
+                        edit_rpm = c_eq4.number_input("RPM", value=int(eq_reg.get('rpm', 0) or 0))
 
-                        edit_fs = st.number_input("Factor de Servicio (F.S.)", value=float(eq_registro.get('factor_servicio', 1.0) or 1.0), step=0.05, key=f"fs_edit_{eq_registro['codigo_equipo']}")
+                        edit_obs = st.text_area("Observaciones Adicionales / Historial de Movimiento", value=str(eq_reg.get('observaciones', '') or ""))
 
-                        st.divider()
+                        c_btn1, c_btn2 = st.columns(2)
+                        btn_upd = c_btn1.form_submit_button("💾 Guardar Cambios", use_container_width=True)
+                        btn_can = c_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
 
-                        # --- SECCIÓN 2: PROTECCIONES Y MANIOBRA CON SELECTOR DINÁMICO ---
-                        st.markdown("##### ⚡ 2. Protecciones y Maniobra en CCM")
-                        c_p1, c_p2 = st.columns(2)
-                        edit_brk = c_p1.number_input("ITM Principal (A)", value=float(eq_registro.get('breaker_amp', 0.0) or 0.0), step=5.0, key=f"brk_edit_{eq_registro['codigo_equipo']}")
-                        
-                        edit_tipo_prot = c_p1.selectbox(
-                            "Esquema de Protección Secundaria", 
-                            [
-                                "Fusibles de Protección",
-                                "ITM Electrónico (LSIG)", 
-                                "ITM Termomagnético / Magnético", 
-                                "Relevador Térmico de Sobrecarga"
-                            ],
-                            key=f"sel_tipo_prot_edit_{eq_registro['codigo_equipo']}"
-                        )
-
-                        if edit_tipo_prot == "Fusibles de Protección":
-                            edit_ovl = c_p2.number_input("Capacidad de los Fusibles (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=5.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
-                        elif edit_tipo_prot == "ITM Electrónico (LSIG)":
-                            edit_ovl = c_p2.number_input("Ajuste L (Largo Retardo / Ir) (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
-                        else:
-                            edit_ovl = c_p2.number_input("Ajuste / Capacidad Protección (A)", value=float(eq_registro.get('overload_setting', 0.0) or 0.0), step=1.0, key=f"ovl_edit_{eq_registro['codigo_equipo']}")
-                        
-                        st.divider()
-
-                        st.markdown("##### 🔌 3. Cableado y Alimentación")
-                        c_p3, c_p4 = st.columns(2)
-                        edit_cal = c_p3.text_input("Calibre Conductor", value=str(eq_registro.get('calibre_cable', '') or ""), key=f"cal_edit_{eq_registro['codigo_equipo']}")
-                        
-                        mat_op = ["Cobre (Cu)", "Aluminio (Al)"]
-                        val_mat = str(eq_registro.get('material_conductor', 'Cobre (Cu)'))
-                        idx_mat = mat_op.index(val_mat) if val_mat in mat_op else 0
-                        edit_mat = c_p4.selectbox("Material Conductor", mat_op, index=idx_mat, key=f"mat_edit_{eq_registro['codigo_equipo']}")
-
-                        c_p5, c_p6 = st.columns(2)
-                        edit_hilos = c_p5.number_input("Conductores por Fase", value=int(eq_registro.get('conductores_por_fase', 1) or 1), min_value=1, max_value=6, step=1, key=f"hilos_edit_{eq_registro['codigo_equipo']}")
-                        edit_dist = c_p6.number_input("Distancia a CCM (m)", value=float(eq_registro.get('distancia_m', 0.0) or 0.0), step=5.0, key=f"dist_edit_{eq_registro['codigo_equipo']}")
-
-                        st.divider()
-
-                        edit_obs = st.text_area("Observaciones Adicionales", value=str(eq_registro.get('observaciones', '') or ""), key=f"obs_edit_{eq_registro['codigo_equipo']}")
-
-                        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR EN EDICIÓN ---
-                        col_ebtn1, col_ebtn2 = st.columns(2)
-                        btn_update_eq = col_ebtn1.form_submit_button("💾 Guardar Cambios en Ficha", use_container_width=True)
-                        btn_cancelar_edit = col_ebtn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
-
-                        if btn_cancelar_edit:
-                            st.warning("Edición cancelada. No se guardaron cambios.")
+                        if btn_can:
+                            st.warning("Edición cancelada.")
                             st.rerun()
 
-                        if btn_update_eq:
+                        if btn_upd:
                             q_upd_eq = text("""
                             UPDATE catalogo_equipos SET
+                                codigo_equipo = :cod,
                                 ubicacion = :ub,
                                 marca_modelo = :mm,
-                                no_serie = :ns,
                                 frame = :fr,
                                 balero_superior = :bsup,
                                 balero_inferior = :binf,
@@ -1465,83 +963,64 @@ elif opcion == "Catálogo de Equipos":
                                 voltaje_nom = :vnom,
                                 corriente_nom = :inom,
                                 rpm = :rpm,
-                                factor_servicio = :fs,
                                 estatus = :est,
-                                breaker_amp = :brk,
-                                overload_setting = :ovl,
-                                calibre_cable = :cal,
-                                material_conductor = :mat,
-                                conductores_por_fase = :hilos,
-                                distancia_m = :dist,
                                 observaciones = :obs
-                            WHERE codigo_equipo = :cod;
+                            WHERE TRIM(no_serie) = TRIM(:ns);
                             """)
-
-                            params_upd_eq = {
-                                "ub": edit_ubic, "mm": edit_marca_m, "ns": edit_no_serie, "fr": edit_frame,
-                                "bsup": edit_balero_sup.strip(), "binf": edit_balero_inf.strip(),
-                                "php": edit_pot_hp, "vnom": edit_v_nom, "inom": edit_i_nom, "rpm": edit_rpm,
-                                "fs": edit_fs, "est": edit_estatus, "brk": edit_brk, "ovl": edit_ovl,
-                                "cal": edit_cal, "mat": edit_mat, "hilos": edit_hilos, "dist": edit_dist, 
-                                "obs": edit_obs, "cod": eq_sel_cod
-                            }
-
                             try:
                                 with engine.begin() as conn:
-                                    conn.execute(q_upd_eq, params_upd_eq)
-                                st.success(f"✅ Ficha del equipo **{eq_sel_cod}** actualizada correctamente.")
+                                    conn.execute(q_upd_eq, {
+                                        "cod": edit_pos.strip(), "ub": edit_ubic, "mm": edit_marca,
+                                        "fr": edit_frame, "bsup": edit_bsup.strip(), "binf": edit_binf.strip(),
+                                        "php": edit_pot, "vnom": edit_vnom, "inom": edit_inom,
+                                        "rpm": edit_rpm, "est": edit_estatus, "obs": edit_obs, "ns": target_sn
+                                    })
+                                st.cache_data.clear()
+                                st.success(f"✅ Motor S/N **{target_sn}** reubicado / actualizado correctamente a **{edit_pos}**.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error al actualizar en base de datos: {e}")
+                                st.error(f"❌ Error al actualizar en BD: {e}")
 
-            with col_del_eq:
-                with st.expander("🗑️ Eliminar Equipo del Catálogo", expanded=True):
-                    st.warning(f"⚠️ ¿Deseas eliminar **{eq_sel_cod}** del catálogo?")
-                    st.write(f"**Ubicación:** {eq_registro.get('ubicacion', 'N/A')}")
-                    st.write(f"**FLA:** {eq_registro.get('corriente_nom', 0)} A")
-                    st.write(f"**ITM Principal:** {eq_registro.get('breaker_amp', 0)} A")
-                    st.write(f"**Alimentación:** {eq_registro.get('conductores_por_fase', 1)}x {eq_registro.get('calibre_cable', 'N/A')} ({eq_registro.get('material_conductor', 'Cu')})")
-                    st.write(f"**Distancia:** {eq_registro.get('distancia_m', 0)} m")
+            with c_del:
+                with st.expander("🗑️ Eliminar Activo del Catálogo", expanded=True):
+                    st.warning(f"⚠️ ¿Eliminar permanentemente el S/N **{target_sn}**?")
+                    st.write(f"**Posición Actual:** {eq_reg.get('codigo_equipo')}")
+                    st.write(f"**Ubicación:** {eq_reg.get('ubicacion')}")
 
-                    if st.button("❌ Confirmar Eliminación", key=f"del_eq_{eq_sel_cod}"):
-                        q_del_eq = text("DELETE FROM catalogo_equipos WHERE codigo_equipo = :cod;")
+                    if st.button("❌ Confirmar Eliminación", key=f"del_sn_{target_sn}"):
+                        q_del = text("DELETE FROM catalogo_equipos WHERE TRIM(no_serie) = TRIM(:ns);")
                         try:
                             with engine.begin() as conn:
-                                conn.execute(q_del_eq, {"cod": eq_sel_cod})
-                            st.success(f"🗑️ Equipo **{eq_sel_cod}** eliminado con éxito.")
+                                conn.execute(q_del, {"ns": target_sn})
+                            st.cache_data.clear()
+                            st.success(f"🗑️ Motor S/N **{target_sn}** eliminado del catálogo.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar el equipo: {e}")
-                            
+                            st.error(f"❌ Error al eliminar: {e}")
+
 # ---------------------------------------------------------
 # 3. NUEVA INSPECCIÓN ELÉCTRICA
 # ---------------------------------------------------------
-
 elif opcion == "Nueva Inspección Eléctrica":
     st.title("📋 Lectura Electromecánica en Campo")
 
     df_equipos_cat = obtener_equipos()
 
-    # FILTRAR EQUIPOS OPERATIVOS O EN REVISIÓN (Permite inspeccionar los que tienen ventilador/mitigación activa)
     if not df_equipos_cat.empty and 'estatus' in df_equipos_cat.columns:
-        df_equipos_activos = df_equipos_cat[df_equipos_cat['estatus'].isin(['Operativo', 'En Revisión'])]
+        df_activos = df_equipos_cat[df_equipos_cat['estatus'].isin(['Operativo', 'En Revisión'])]
     else:
-        df_equipos_activos = df_equipos_cat.copy()
+        df_activos = df_equipos_cat.copy()
 
     with st.form("form_bomba", clear_on_submit=True):
         st.subheader("📌 Datos Generales del Registro")
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_insp = st.date_input("Fecha de la Inspección", value=datetime.today().date())
+            fecha_insp = st.date_input("Fecha de Inspección", value=datetime.today().date())
             
-            # SECCIÓN DE SELECCIÓN DE EQUIPO FILTRADO
-            if not df_equipos_activos.empty:
-                opciones_eq = df_equipos_activos.apply(lambda row: f"{row['codigo_equipo']} ({row['ubicacion']}) - [{row['estatus']}]", axis=1).tolist()
-                eq_seleccionado = st.selectbox("Seleccionar Equipo del Catálogo", opciones_eq)
-                equipo = eq_seleccionado.split(" (")[0].strip()
+            if not df_activos.empty:
+                no_serie_sel, codigo_pos = selector_equipo_por_serie(df_activos, key_widget="sel_eq_insp")
             else:
-                st.warning("⚠️ No hay equipos disponibles para inspección. Se muestra campo manual.")
-                equipo = st.text_input("Identificador del Equipo / Pozo", value="Bomba Pozo 01").strip()
+                no_serie_sel = st.text_input("Número de Serie *", value="SN-001").strip()
 
         with col_f2:
             tipo_equipo = st.selectbox("Tipo de Motor", ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"])
@@ -1559,7 +1038,7 @@ elif opcion == "Nueva Inspección Eléctrica":
         v_an = vn_1.number_input("V_an (V)", value=254.0)
         v_bn = vn_2.number_input("V_bn (V)", value=254.0)
         v_cn = vn_3.number_input("V_cn (V)", value=254.0)
-        v_n_tierra = vn_4.number_input("V Neutro-Tierra (V)", value=0.5, help="Norma IEEE 141: Recomendado < 2.0 V")
+        v_n_tierra = vn_4.number_input("V Neutro-Tierra (V)", value=0.5)
 
         st.markdown("#### 🔌 Consumos de Corriente por Fase")
         i_col1, i_col2, i_col3 = st.columns(3)
@@ -1569,26 +1048,23 @@ elif opcion == "Nueva Inspección Eléctrica":
 
         observaciones = st.text_area("Observaciones adicionales")
 
-        st.divider()
+        c_btn1, c_btn2 = st.columns(2)
+        enviado = c_btn1.form_submit_button("💾 Guardar Registro", use_container_width=True)
+        btn_can = c_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
 
-        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR ---
-        col_btn1, col_btn2 = st.columns(2)
-        enviado = col_btn1.form_submit_button("💾 Guardar Registro", use_container_width=True)
-        btn_cancelar_insp = col_btn2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
-
-        if btn_cancelar_insp:
-            st.warning("Inspección cancelada. No se registraron datos.")
+        if btn_can:
+            st.warning("Inspección cancelada.")
             st.rerun()
 
         if enviado:
             desb_v_ff = calcular_desbalance(v_ab, v_bc, v_ca)
             desb_v_fn = calcular_desbalance(v_an, v_bn, v_cn)
             desb_i = calcular_desbalance(i_a, i_b, i_c)
-
             i_prom = (i_a + i_b + i_c) / 3.0
+            
             corriente_nom = 65.0
-            if not df_equipos_cat.empty and equipo in df_equipos_cat["codigo_equipo"].values:
-                corriente_nom = df_equipos_cat[df_equipos_cat["codigo_equipo"] == equipo]["corriente_nom"].values[0]
+            if not df_equipos_cat.empty and no_serie_sel in df_equipos_cat["no_serie"].values:
+                corriente_nom = df_equipos_cat[df_equipos_cat["no_serie"] == no_serie_sel]["corriente_nom"].values[0]
             
             factor_carga_calc = round((i_prom / corriente_nom) * 100, 2) if corriente_nom > 0 else 0.0
 
@@ -1606,42 +1082,26 @@ elif opcion == "Nueva Inspección Eléctrica":
             (:fecha, :equipo, :tipo, :v_ab, :v_bc, :v_ca, :desbalance_v_ff, :v_an, :v_bn, :v_cn, :desbalance_v_fn, :i_a, :i_b, :i_c, :desbalance_i, :v_n_tierra, :factor_carga, :estado, :tecnico, :observaciones);
             """)
 
-            datos_insertar = {
-                "fecha": fecha_insp,
-                "equipo": str(equipo).strip(),
-                "tipo": str(tipo_equipo),
-                "v_ab": float(v_ab), "v_bc": float(v_bc), "v_ca": float(v_ca),
-                "desbalance_v_ff": float(desb_v_ff),
-                "v_an": float(v_an), "v_bn": float(v_bn), "v_cn": float(v_cn),
-                "desbalance_v_fn": float(desb_v_fn),
-                "i_a": float(i_a), "i_b": float(i_b), "i_c": float(i_c),
-                "desbalance_i": float(desb_i),
-                "v_n_tierra": float(v_n_tierra),
-                "factor_carga": float(factor_carga_calc),
-                "estado": str(estado_eval),
-                "tecnico": str(tecnico),
-                "observaciones": str(observaciones)
-            }
-
             try:
                 with engine.begin() as conn:
-                    conn.execute(insert_query, datos_insertar)
-                st.success(
-                    f"✅ Registro guardado con éxito. "
-                    f"Factor de Carga NEMA: **{factor_carga_calc}%**, "
-                    f"Desbalance V_FF: **{desb_v_ff}%**, "
-                    f"Estado evaluado: **{estado_eval}**."
-                )
+                    conn.execute(insert_query, {
+                        "fecha": fecha_insp, "equipo": str(no_serie_sel).strip(), "tipo": str(tipo_equipo),
+                        "v_ab": v_ab, "v_bc": v_bc, "v_ca": v_ca, "desbalance_v_ff": desb_v_ff,
+                        "v_an": v_an, "v_bn": v_bn, "v_cn": v_cn, "desbalance_v_fn": desb_v_fn,
+                        "i_a": i_a, "i_b": i_b, "i_c": i_c, "desbalance_i": desb_i,
+                        "v_n_tierra": v_n_tierra, "factor_carga": factor_carga_calc,
+                        "estado": estado_eval, "tecnico": tecnico, "observaciones": observaciones
+                    })
+                st.success(f"✅ Lectura guardada para el motor S/N **{no_serie_sel}** (Estado: {estado_eval}).")
+                st.rerun()
             except Exception as e:
-                st.error(f"❌ Error al insertar datos en la base de datos: {e}")
-                
+                st.error(f"❌ Error al insertar datos: {e}")
+
 # ---------------------------------------------------------
-# 4. INSPECCIÓN TERMOGRÁFICA (FLIR ONE PRO) - CAPTURA COMPLETA
+# 4. INSPECCIÓN TERMOGRÁFICA (FLIR)
 # ---------------------------------------------------------
 elif opcion == "🔥 Inspección Termográfica (FLIR)":
     st.title("🔥 Registro Termográfico Completo (Vacitado FLIR)")
-    st.caption("Vacía la información de todos los puntos medidos en la inspección y guárdalos con un solo clic.")
-
     df_equipos_cat = obtener_equipos()
 
     tab_termo_nuevo, tab_termo_historial = st.tabs(["➕ Vaciar Inspección Completa", "📜 Historial Térmico"])
@@ -1649,168 +1109,70 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
     with tab_termo_nuevo:
         with st.form("form_termografia_completa", clear_on_submit=True):
             col_eq, col_fecha = st.columns(2)
-            
             with col_eq:
                 if not df_equipos_cat.empty:
-                    equipo_id = st.selectbox("Seleccionar Equipo", df_equipos_cat["codigo_equipo"].tolist())
+                    no_serie_termo, _ = selector_equipo_por_serie(df_equipos_cat, key_widget="sel_termo_eq")
                 else:
-                    equipo_id = st.text_input("Identificador del Equipo", value="Motor-Bomba-01").strip()
-            
+                    no_serie_termo = st.text_input("Número de Serie", value="SN-001").strip()
             with col_fecha:
                 fecha_termo = st.date_input("Fecha de Inspección", value=datetime.today().date())
 
             st.markdown("---")
-            
             st.subheader("⚙️ 1. Motor (Mecánico / Térmico)")
-            col_m1, col_m2, col_m3 = st.columns(3)
-            with col_m1:
-                t_bal_sup = st.number_input("🔩 Balero Superior (°C)", value=40.0, step=0.1)
-            with col_m2:
-                t_bal_inf = st.number_input("🔩 Balero Inferior (°C)", value=40.0, step=0.1)
-            with col_m3:
-                t_carcasa = st.number_input("📦 Carcasa (°C)", value=40.0, step=0.1)
+            m1, m2, m3 = st.columns(3)
+            t_bal_sup = m1.number_input("🔩 Balero Superior (°C)", value=40.0, step=0.1)
+            t_bal_inf = m2.number_input("🔩 Balero Inferior (°C)", value=40.0, step=0.1)
+            t_carcasa = m3.number_input("📦 Carcasa (°C)", value=40.0, step=0.1)
 
-            st.markdown("---")
+            st.subheader("⚡ 2. ITM")
+            i1, i2, i3 = st.columns(3)
+            t_itm_a = i1.number_input("Fase A (°C)", value=35.0, step=0.1)
+            t_itm_b = i2.number_input("Fase B (°C)", value=35.0, step=0.1)
+            t_itm_c = i3.number_input("Fase C (°C)", value=35.0, step=0.1)
 
-            st.subheader("⚡ 2. ITM (Interruptor Termomagnético)")
-            col_i1, col_i2, col_i3 = st.columns(3)
-            with col_i1:
-                t_itm_a = st.number_input("Fase A - ITM (°C)", value=35.0, step=0.1)
-            with col_i2:
-                t_itm_b = st.number_input("Fase B - ITM (°C)", value=35.0, step=0.1)
-            with col_i3:
-                t_itm_c = st.number_input("Fase C - ITM (°C)", value=35.0, step=0.1)
+            observaciones_gen = st.text_area("Observaciones Generales")
+            btn_guardar_termo = st.form_submit_button("💾 Guardar Inspección Completa")
 
-            st.markdown("---")
-
-            st.subheader("🔌 3. Fusibles")
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                t_fus_a = st.number_input("Fase A - Fusible (°C)", value=35.0, step=0.1)
-            with col_f2:
-                t_fus_b = st.number_input("Fase B - Fusible (°C)", value=35.0, step=0.1)
-            with col_f3:
-                t_fus_c = st.number_input("Fase C - Fusible (°C)", value=35.0, step=0.1)
-
-            st.markdown("---")
-
-            st.subheader("🎛️ 4. Arrancador / Contactor")
-            col_a1, col_a2, col_a3 = st.columns(3)
-            with col_a1:
-                t_arr_a = st.number_input("Fase A - Arrancador (°C)", value=35.0, step=0.1)
-            with col_a2:
-                t_arr_b = st.number_input("Fase B - Arrancador (°C)", value=35.0, step=0.1)
-            with col_a3:
-                t_arr_c = st.number_input("Fase C - Arrancador (°C)", value=35.0, step=0.1)
-
-            st.markdown("---")
-            observaciones_gen = st.text_area(
-                "Observaciones Generales de la Rutina", 
-                placeholder="Ej. Inspección de rutina realizada tras 4 horas de operación continua. Sin anomalías detectadas."
-            )
-
-            btn_guardar_todo = st.form_submit_button("💾 Guardar Inspección Completa (4 Componentes)")
-
-            if btn_guardar_todo:
-                componentes_datos = [
-                    {
-                        "punto": "Motor (Mecánico/Térmico)",
-                        "t1": t_bal_sup, "t2": t_bal_inf, "t3": t_carcasa,
-                        "obs": f"Balero Sup: {t_bal_sup}°C | Balero Inf: {t_bal_inf}°C | Carcasa: {t_carcasa}°C. {observaciones_gen}".strip(),
-                        "es_motor": True
-                    },
-                    {
-                        "punto": "ITM (Interruptor Termomagnético)",
-                        "t1": t_itm_a, "t2": t_itm_b, "t3": t_itm_c,
-                        "obs": f"Fase A: {t_itm_a}°C | Fase B: {t_itm_b}°C | Fase C: {t_itm_c}°C. {observaciones_gen}".strip(),
-                        "es_motor": False
-                    },
-                    {
-                        "punto": "Fusibles",
-                        "t1": t_fus_a, "t2": t_fus_b, "t3": t_fus_c,
-                        "obs": f"Fase A: {t_fus_a}°C | Fase B: {t_fus_b}°C | Fase C: {t_fus_c}°C. {observaciones_gen}".strip(),
-                        "es_motor": False
-                    },
-                    {
-                        "punto": "Arrancador / Contactor",
-                        "t1": t_arr_a, "t2": t_arr_b, "t3": t_arr_c,
-                        "obs": f"Fase A: {t_arr_a}°C | Fase B: {t_arr_b}°C | Fase C: {t_arr_c}°C. {observaciones_gen}".strip(),
-                        "es_motor": False
-                    }
+            if btn_guardar_termo:
+                componentes = [
+                    {"punto": "Motor (Mecánico/Térmico)", "t1": t_bal_sup, "t2": t_bal_inf, "t3": t_carcasa, "es_motor": True},
+                    {"punto": "ITM (Interruptor Termomagnético)", "t1": t_itm_a, "t2": t_itm_b, "t3": t_itm_c, "es_motor": False}
                 ]
-
-                q_ins_termo = text("""
+                q_ins = text("""
                 INSERT INTO inspecciones_termograficas 
                 (equipo_id, fecha_inspeccion, punto_medicion, hot_spot, spot_1, spot_2, spot_3, desbalance_max, delta_hotspot, estado, observaciones, tecnico)
                 VALUES (:eq, :f, :p, :hot, :s1, :s2, :s3, :desbal, :delta, :est, :obs, :tec);
                 """)
-
-                tecnico_actual = st.session_state.get("usuario_actual", "Sistema")
-
+                tec_actual = st.session_state.get("usuario_actual", "Sistema")
                 try:
                     with engine.begin() as conn:
-                        for item in componentes_datos:
+                        for item in componentes:
                             t1, t2, t3 = item["t1"], item["t2"], item["t3"]
-                            hot_spot = max(t1, t2, t3)
-                            desbal = max(t1, t2, t3) - min(t1, t2, t3)
-                            delta = hot_spot - ((t1 + t2 + t3) / 3.0)
-
-                            if item["es_motor"]:
-                                if hot_spot >= 90.0 or desbal >= 15.0:
-                                    estado = "CRITICO"
-                                elif hot_spot >= 75.0 or desbal >= 8.0:
-                                    estado = "ADVERTENCIA"
-                                else:
-                                    estado = "NORMAL"
-                            else:
-                                if desbal >= 15.0 or hot_spot >= 85.0:
-                                    estado = "CRITICO"
-                                elif desbal >= 4.0 or hot_spot >= 70.0:
-                                    estado = "ADVERTENCIA"
-                                else:
-                                    estado = "NORMAL"
-
-                            params = {
-                                "eq": str(equipo_id).strip(),
-                                "f": fecha_termo,
-                                "p": item["punto"],
-                                "hot": float(hot_spot),
-                                "s1": float(t1),
-                                "s2": float(t2),
-                                "s3": float(t3),
-                                "desbal": float(desbal),
-                                "delta": float(delta),
-                                "est": estado,
-                                "obs": item["obs"],
-                                "tec": str(tecnico_actual)
-                            }
-
-                            conn.execute(q_ins_termo, params)
-
-                    st.success(f"✅ Se vaciaron y guardaron exitosamente las lecturas de los 4 componentes para **{equipo_id}**.")
+                            hot = max(t1, t2, t3)
+                            desbal = hot - min(t1, t2, t3)
+                            delta = hot - ((t1 + t2 + t3) / 3.0)
+                            est = "CRITICO" if hot >= 85 or desbal >= 15 else ("ADVERTENCIA" if hot >= 70 or desbal >= 5 else "NORMAL")
+                            
+                            conn.execute(q_ins, {
+                                "eq": str(no_serie_termo).strip(), "f": fecha_termo, "p": item["punto"],
+                                "hot": hot, "s1": t1, "s2": t2, "s3": t3, "desbal": desbal,
+                                "delta": delta, "est": est, "obs": observaciones_gen, "tec": tec_actual
+                            })
+                    st.success(f"✅ Inspección registrada para S/N **{no_serie_termo}**.")
                 except Exception as e:
-                    st.error(f"❌ Error al guardar la inspección: {e}")
+                    st.error(f"❌ Error al guardar termografía: {e}")
 
     with tab_termo_historial:
         df_termo = obtener_termografias()
-        if df_termo.empty:
-            st.info("No hay lecturas termográficas en la base de datos.")
-        else:
-            # 🟢 Filtro unificado
-            df_termo_filtrado = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion", key_suffix="historial_termo")
-            
-            eq_termo_filtro = st.selectbox("Filtrar por Equipo:", ["Todos"] + list(df_termo["equipo_id"].unique()))
-            if eq_termo_filtro != "Todos":
-                df_termo_filtrado = df_termo_filtrado[df_termo_filtrado["equipo_id"] == eq_termo_filtro]
-                
-            st.dataframe(df_termo_filtrado, use_container_width=True)
-            
+        if not df_termo.empty:
+            df_termo_filt = aplicar_filtros_tabla(df_termo, col_fecha="fecha_inspeccion", key_suffix="hist_termo")
+            st.dataframe(df_termo_filt, use_container_width=True)
+
 # ---------------------------------------------------------
-# 5. REGISTRO DE EVENTOS
+# 5. REGISTRO DE EVENTOS (BITÁCORA DE EXPANDERS)
 # ---------------------------------------------------------
 elif opcion == "Registro de Eventos":
     st.title("🚨 Bitácora y Registro de Eventos")
-
     df_equipos_cat = obtener_equipos()
 
     tab_nuevo, tab_historial, tab_gestion = st.tabs([
@@ -1831,9 +1193,9 @@ elif opcion == "Registro de Eventos":
                     hora_ev = st.time_input("Hora del Evento *", value=datetime.now().time())
 
                 if not df_equipos_cat.empty:
-                    equipo_ev = st.selectbox("Equipo / Motor Afectado *", df_equipos_cat["codigo_equipo"].tolist())
+                    no_serie_ev, _ = selector_equipo_por_serie(df_equipos_cat, key_widget="sel_eq_evento_n")
                 else:
-                    equipo_ev = st.text_input("Equipo / Motor Afectado *", value="Bomba Pozo 01")
+                    no_serie_ev = st.text_input("Número de Serie Afectado *", value="SN-001")
 
                 tipo_ev = st.selectbox(
                     "Tipo de Evento *",
@@ -1848,17 +1210,13 @@ elif opcion == "Registro de Eventos":
                 )
 
             with col2:
-                severidad_ev = st.select_slider(
-                    "Nivel de Severidad",
-                    options=["Baja", "Media", "Alta", "Crítica"]
-                )
+                severidad_ev = st.select_slider("Nivel de Severidad", options=["Baja", "Media", "Alta", "Crítica"])
                 descripcion_ev = st.text_area("Descripción / Causa Raíz", placeholder="Detalla qué sucedió exactamente...")
                 accion_ev = st.text_input("Acción Inmediata Tomada", placeholder="Ej. Se aisló el equipo y notificó...")
                 estatus_ev = st.selectbox("Estatus del Evento", ["Abierto", "En Revisión", "Resuelto"])
 
             st.divider()
 
-            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (NUEVO EVENTO) ---
             col_b_ev1, col_b_ev2 = st.columns(2)
             btn_evento = col_b_ev1.form_submit_button("💾 Guardar Evento en BD", use_container_width=True)
             btn_cancelar_ev = col_b_ev2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
@@ -1878,7 +1236,7 @@ elif opcion == "Registro de Eventos":
 
                 params_ev = {
                     "fh": fecha_hora_completa,
-                    "eq": str(equipo_ev).strip(),
+                    "eq": str(no_serie_ev).strip(), # Almacena no_serie
                     "te": tipo_ev,
                     "sev": severidad_ev,
                     "desc": descripcion_ev,
@@ -1887,21 +1245,21 @@ elif opcion == "Registro de Eventos":
                     "rep": usuario_actual
                 }
 
-                # Mapeo de estatus del evento al estatus del catálogo de equipos
                 estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
 
                 q_upd_equipo = text("""
                     UPDATE catalogo_equipos 
                     SET estatus = :est 
-                    WHERE TRIM(codigo_equipo) = TRIM(:eq);
+                    WHERE TRIM(no_serie) = TRIM(:eq);
                 """)
 
                 try:
                     with engine.begin() as conn:
                         conn.execute(q_ins_ev, params_ev)
-                        conn.execute(q_upd_equipo, {"est": estado_catalogo, "eq": str(equipo_ev).strip()})
+                        conn.execute(q_upd_equipo, {"est": estado_catalogo, "eq": str(no_serie_ev).strip()})
 
-                    st.success(f"✅ Evento registrado y estado del equipo actualizado a '{estado_catalogo}'.")
+                    st.cache_data.clear()
+                    st.success(f"✅ Evento registrado para el S/N **{no_serie_ev}** y estado actualizado a '{estado_catalogo}'.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar el evento: {e}")
@@ -1916,15 +1274,9 @@ elif opcion == "Registro de Eventos":
 
             f_col1, f_col2 = st.columns(2)
             with f_col1:
-                filtro_eq = st.multiselect(
-                    "Filtrar por Equipo:", 
-                    df_eventos["equipo"].dropna().unique()
-                )
+                filtro_eq = st.multiselect("Filtrar por S/N Motor:", df_eventos["equipo"].dropna().unique())
             with f_col2:
-                filtro_sev = st.multiselect(
-                    "Filtrar por Severidad:", 
-                    df_eventos["severidad"].dropna().unique()
-                )
+                filtro_sev = st.multiselect("Filtrar por Severidad:", df_eventos["severidad"].dropna().unique())
 
             if filtro_eq:
                 df_evt_filtered = df_evt_filtered[df_evt_filtered["equipo"].isin(filtro_eq)]
@@ -1934,13 +1286,11 @@ elif opcion == "Registro de Eventos":
             st.markdown(f"### 📋 Historial de Bitácora ({len(df_evt_filtered)} eventos encontrados)")
             st.divider()
 
-            # Renderizar cada evento como una tarjeta expansible independiente
             for _, row in df_evt_filtered.iterrows():
                 estatus = row.get('estatus', 'Abierto')
-                # Indicador visual según el estatus
                 icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
                 
-                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **{row['equipo']}** — {row['tipo_evento']} [{estatus}]"
+                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **S/N: {row['equipo']}** — {row['tipo_evento']} [{estatus}]"
                 
                 with st.expander(titulo_tarjeta):
                     c1, c2, c3 = st.columns(3)
@@ -1953,22 +1303,15 @@ elif opcion == "Registro de Eventos":
                     
                     st.markdown("---")
                     st.markdown("**📝 Descripción / Causa Raíz:**")
-                    st.info(row['descripcion'] if row['descripcion'] else "Sin descripción detallada.")
+                    st.info(row['descripcion'] if row['descripcion'] else "Sin descripción.")
                     
                     st.markdown("**🛠️ Acciones Tomadas e Historial de Cierre:**")
-                    # Las notas múltiples con saltos de línea se muestran ordenadas verticalmente
                     accion_texto = row['accion_tomada'] if row['accion_tomada'] else "Sin acciones registradas aún."
                     st.success(accion_texto)
 
             st.divider()
-
             csv_ev = df_evt_filtered.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Exportar Eventos a CSV",
-                data=csv_ev,
-                file_name=f"eventos_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+            st.download_button("📥 Exportar Eventos a CSV", data=csv_ev, file_name=f"eventos_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
     with tab_gestion:
         df_eventos = obtener_eventos()
@@ -1979,13 +1322,12 @@ elif opcion == "Registro de Eventos":
             st.subheader("🛠️ Administrar o Reconectar / Cerrar Eventos")
             
             opciones_eventos = {
-                f"ID #{row['id']} | {row['equipo']} | {row['tipo_evento']} [{row['estatus']}]": row['id']
+                f"ID #{row['id']} | S/N: {row['equipo']} | {row['tipo_evento']} [{row['estatus']}]": row['id']
                 for _, row in df_eventos.iterrows()
             }
             
             label_evt_sel = st.selectbox("Selecciona el evento a gestionar:", list(opciones_eventos.keys()))
             id_evt_sel = opciones_eventos[label_evt_sel]
-
             evt_registro = df_eventos[df_eventos['id'] == id_evt_sel].iloc[0]
 
             col_cerrar_evt, col_edit_evt, col_del_evt = st.columns(3)
@@ -1996,18 +1338,13 @@ elif opcion == "Registro de Eventos":
                         st.success(f"✅ El evento ID #{id_evt_sel} ya se encuentra resuelto/cerrado.")
                     else:
                         with st.form(f"form_cerrar_evt_{id_evt_sel}", clear_on_submit=True):
-                            st.caption(f"**Equipo:** {evt_registro['equipo']}")
+                            st.caption(f"**S/N Motor:** {evt_registro['equipo']}")
                             st.caption(f"**Causa inicial:** {evt_registro['tipo_evento']}")
                             
                             nuevo_estatus = st.selectbox("Nuevo Estatus", ["Resuelto", "En Revisión"])
                             fecha_cierre = st.date_input("Fecha de Reconexión/Cierre", value=datetime.today().date())
-                            
-                            accion_reconexion = st.text_area(
-                                "Detalle de la Reconexión / Solución",
-                                placeholder="Ej. Se corrigió la falla de aislamiento, se realizaron pruebas de rotación y megger. Motor reconectado y operando en norma."
-                            )
+                            accion_reconexion = st.text_area("Detalle de la Reconexión / Solución", placeholder="Ej. Se corrigió la falla de aislamiento...")
 
-                            # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (RECONEXIÓN) ---
                             col_bc1, col_bc2 = st.columns(2)
                             btn_reconectar = col_bc1.form_submit_button("💾 Guardar y Cerrar", use_container_width=True)
                             btn_cancelar_close = col_bc2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
@@ -2026,35 +1363,23 @@ elif opcion == "Registro de Eventos":
                                     accion_final = f"{accion_previa}\n\n{registro_cierre}".strip()
 
                                     q_close_evt = text("""
-                                        UPDATE registro_eventos SET
-                                            estatus = :est,
-                                            accion_tomada = :acc
-                                        WHERE id = :id;
+                                        UPDATE registro_eventos SET estatus = :est, accion_tomada = :acc WHERE id = :id;
                                     """)
-
                                     estado_equipo = "Operativo" if nuevo_estatus == "Resuelto" else nuevo_estatus
                                     q_upd_eq_close = text("""
-                                        UPDATE catalogo_equipos 
-                                        SET estatus = :est 
-                                        WHERE TRIM(codigo_equipo) = TRIM(:eq);
+                                        UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq);
                                     """)
 
                                     try:
                                         with engine.begin() as conn:
-                                            conn.execute(q_close_evt, {
-                                                "est": nuevo_estatus,
-                                                "acc": accion_final,
-                                                "id": int(id_evt_sel)
-                                            })
-                                            conn.execute(q_upd_eq_close, {
-                                                "est": estado_equipo, 
-                                                "eq": str(evt_registro['equipo']).strip()
-                                            })
+                                            conn.execute(q_close_evt, {"est": nuevo_estatus, "acc": accion_final, "id": int(id_evt_sel)})
+                                            conn.execute(q_upd_eq_close, {"est": estado_equipo, "eq": str(evt_registro['equipo']).strip()})
                                         
-                                        st.success(f"✅ Evento #{id_evt_sel} cerrado y equipo actualizado a '{estado_equipo}'.")
+                                        st.cache_data.clear()
+                                        st.success(f"✅ Evento #{id_evt_sel} cerrado y equipo actualizado.")
                                         st.rerun()
                                     except Exception as e:
-                                        st.error(f"❌ Error al actualizar el evento: {e}")
+                                        st.error(f"❌ Error al actualizar evento: {e}")
 
             with col_edit_evt:
                 with st.expander("✏️ Modificar Evento Seleccionado"):
@@ -2065,22 +1390,11 @@ elif opcion == "Registro de Eventos":
 
                         edit_f_ev = st.date_input("Fecha", value=fh_val.date())
                         edit_h_ev = st.time_input("Hora", value=fh_val.time())
-                        edit_eq_ev = st.text_input("Equipo", value=str(evt_registro['equipo'])).strip()
+                        edit_eq_ev = st.text_input("S/N Motor", value=str(evt_registro['equipo'])).strip()
 
-                        tipos_evt_lista = [
-                            "Desconexión por daño mecánico",
-                            "Falla eléctrica / Sobrevoltaje",
-                            "Paro de emergencia",
-                            "Mantenimiento no programado",
-                            "Fuga o Sobrecalentamiento",
-                            "Otro"
-                        ]
+                        tipos_evt_lista = ["Desconexión por daño mecánico", "Falla eléctrica / Sobrevoltaje", "Paro de emergencia", "Mantenimiento no programado", "Fuga o Sobrecalentamiento", "Otro"]
                         idx_tipo_evt = tipos_evt_lista.index(evt_registro['tipo_evento']) if evt_registro['tipo_evento'] in tipos_evt_lista else 0
                         edit_tipo_ev = st.selectbox("Tipo de Evento", tipos_evt_lista, index=idx_tipo_evt)
-
-                        sev_lista = ["Baja", "Media", "Alta", "Crítica"]
-                        idx_sev = sev_lista.index(evt_registro['severidad']) if evt_registro['severidad'] in sev_lista else 0
-                        edit_sev_ev = st.select_slider("Severidad", options=sev_lista, value=sev_lista[idx_sev])
 
                         edit_desc_ev = st.text_area("Descripción", value=str(evt_registro['descripcion'] or ""))
                         edit_acc_ev = st.text_area("Acción Tomada", value=str(evt_registro['accion_tomada'] or ""))
@@ -2090,338 +1404,178 @@ elif opcion == "Registro de Eventos":
                         edit_est_ev = st.selectbox("Estatus", estatus_lista, index=idx_est)
 
                         st.divider()
-
-                        # --- BOTONES DE ACCIÓN: GUARDAR Y CANCELAR (EDICIÓN DE EVENTO) ---
                         col_be1, col_be2 = st.columns(2)
                         btn_update_evt = col_be1.form_submit_button("💾 Guardar Cambios", use_container_width=True)
                         btn_cancelar_edit_evt = col_be2.form_submit_button("❌ Cancelar", type="secondary", use_container_width=True)
 
                         if btn_cancelar_edit_evt:
-                            st.warning("Edición de evento cancelada.")
+                            st.warning("Edición cancelada.")
                             st.rerun()
 
                         if btn_update_evt:
                             new_fh = datetime.combine(edit_f_ev, edit_h_ev)
-
                             q_upd_evt = text("""
-                                UPDATE registro_eventos SET
-                                    fecha_hora = :fh,
-                                    equipo = :eq,
-                                    tipo_evento = :te,
-                                    severidad = :sev,
-                                    descripcion = :desc,
-                                    accion_tomada = :acc,
-                                    estatus = :est
-                                WHERE id = :id;
+                                UPDATE registro_eventos SET fecha_hora = :fh, equipo = :eq, tipo_evento = :te, descripcion = :desc, accion_tomada = :acc, estatus = :est WHERE id = :id;
                             """)
-
                             q_upd_eq_cat = text("""
-                                UPDATE catalogo_equipos
-                                SET estatus = :est
-                                WHERE TRIM(codigo_equipo) = TRIM(:eq);
+                                UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq);
                             """)
-
                             estado_cat = "Operativo" if edit_est_ev == "Resuelto" else edit_est_ev
-
-                            params_upd_evt = {
-                                "fh": new_fh,
-                                "eq": edit_eq_ev,
-                                "te": edit_tipo_ev,
-                                "sev": edit_sev_ev,
-                                "desc": edit_desc_ev,
-                                "acc": edit_acc_ev,
-                                "est": edit_est_ev,
-                                "id": int(id_evt_sel)
-                            }
 
                             try:
                                 with engine.begin() as conn:
-                                    conn.execute(q_upd_evt, params_upd_evt)
+                                    conn.execute(q_upd_evt, {"fh": new_fh, "eq": edit_eq_ev, "te": edit_tipo_ev, "desc": edit_desc_ev, "acc": edit_acc_ev, "est": edit_est_ev, "id": int(id_evt_sel)})
                                     conn.execute(q_upd_eq_cat, {"est": estado_cat, "eq": edit_eq_ev})
-                                st.success(f"✅ Evento #{id_evt_sel} y estado de equipo actualizados.")
+                                st.cache_data.clear()
+                                st.success(f"✅ Evento #{id_evt_sel} actualizado.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error al actualizar el evento: {e}")
+                                st.error(f"❌ Error al actualizar: {e}")
 
             with col_del_evt:
                 with st.expander("🗑️ Eliminar Evento Seleccionado"):
-                    st.warning(f"⚠️ ¿Deseas borrar permanentemente el registro **ID #{id_evt_sel}**?")
-                    st.write(f"**Equipo:** {evt_registro['equipo']}")
-                    st.write(f"**Fecha:** {evt_registro['fecha_hora']}")
-                    st.write(f"**Detalle:** {evt_registro['tipo_evento']}")
-
+                    st.warning(f"⚠️ ¿Eliminar registro **ID #{id_evt_sel}**?")
                     if st.button("❌ Confirmar Eliminación", key=f"del_evt_{id_evt_sel}"):
                         q_del_evt = text("DELETE FROM registro_eventos WHERE id = :id;")
-                        
-                        q_upd_eq_del = text("""
-                            UPDATE catalogo_equipos 
-                            SET estatus = 'Operativo' 
-                            WHERE TRIM(codigo_equipo) = TRIM(:eq);
-                        """)
-                        
+                        q_upd_eq_del = text("UPDATE catalogo_equipos SET estatus = 'Operativo' WHERE TRIM(no_serie) = TRIM(:eq);")
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_evt, {"id": int(id_evt_sel)})
                                 conn.execute(q_upd_eq_del, {"eq": str(evt_registro['equipo']).strip()})
-
-                            st.success(f"✅ Evento #{id_evt_sel} eliminado y equipo reestablecido a 'Operativo'.")
+                            st.cache_data.clear()
+                            st.success(f"✅ Evento #{id_evt_sel} eliminado.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar el evento: {e}")
-                            
+                            st.error(f"❌ Error al eliminar: {e}")
+
 # ---------------------------------------------------------
 # 6. HISTORIAL DE MEDICIONES
 # ---------------------------------------------------------
 elif opcion == "Historial de Mediciones":
     st.title("📊 Historial y Gestión de Inspecciones Eléctricas")
-
     df = obtener_datos()
 
     if df.empty:
-        st.info("No hay registros almacenados en la base de datos.")
+        st.info("No hay registros en la base de datos.")
     else:
         st.subheader("📋 Registros Existentes")
-        
-        # 🟢 COLOCAR AQUÍ LOS FILTROS
         df_filtrado = aplicar_filtros_tabla(df, col_fecha="fecha", key_suffix="historial_mediciones")
         st.dataframe(formatear_df_porcentajes(df_filtrado), use_container_width=True)
 
         st.markdown("---")
         st.subheader("🛠️ Modificar o Eliminar un Registro")
-
-        # Se cargan solo los IDs que sobrevivieron al filtro aplicado arriba
         lista_ids = df_filtrado['id'].tolist() if not df_filtrado.empty else df['id'].tolist()
-        id_seleccionado = st.selectbox("Selecciona el ID del registro que deseas gestionar:", lista_ids)
-
+        id_seleccionado = st.selectbox("Selecciona ID del registro:", lista_ids)
         registro = df[df['id'] == id_seleccionado].iloc[0]
 
         col_accion1, col_accion2 = st.columns(2)
-
         with col_accion1:
             with st.expander("✏️ Editar Registro Seleccionado"):
                 with st.form(f"form_editar_{id_seleccionado}"):
-                    fecha_val = registro['fecha']
-                    if hasattr(fecha_val, 'date'):
-                        fecha_val = fecha_val.date()
-                    elif isinstance(fecha_val, str):
-                        fecha_val = datetime.strptime(fecha_val, "%Y-%m-%d").date()
-
-                    edit_fecha = st.date_input("Fecha", value=fecha_val)
-                    edit_equipo = st.text_input("Equipo", value=str(registro['equipo'])).strip()
-                    
-                    tipos_opciones = ["Sumergible", "Vertical (Eje Largo)", "Centrífuga Horizontal"]
-                    idx_tipo = tipos_opciones.index(registro['tipo']) if registro['tipo'] in tipos_opciones else 0
-                    edit_tipo = st.selectbox("Tipo", tipos_opciones, index=idx_tipo)
-                    
-                    st.markdown("**Voltajes FF (V)**")
-                    c1, c2, c3 = st.columns(3)
-                    edit_v_ab = c1.number_input("V_ab", value=float(registro['v_ab']))
-                    edit_v_bc = c2.number_input("V_bc", value=float(registro['v_bc']))
-                    edit_v_ca = c3.number_input("V_ca", value=float(registro['v_ca']))
-
-                    st.markdown("**Voltajes FN (V)**")
-                    c4, c5, c6 = st.columns(3)
-                    edit_v_an = c4.number_input("V_an", value=float(registro['v_an']))
-                    edit_v_bn = c5.number_input("V_bn", value=float(registro['v_bn']))
-                    edit_v_cn = c6.number_input("V_cn", value=float(registro['v_cn']))
-
-                    st.markdown("**Corrientes (A)**")
-                    c7, c8, c9 = st.columns(3)
-                    edit_i_a = c7.number_input("I_a", value=float(registro['i_a']))
-                    edit_i_b = c8.number_input("I_b", value=float(registro['i_b']))
-                    edit_i_c = c9.number_input("I_c", value=float(registro['i_c']))
-
-                    edit_v_n_t = st.number_input("V Neutro-Tierra", value=float(registro.get('v_n_tierra', 0.0)))
+                    edit_equipo = st.text_input("S/N Motor", value=str(registro['equipo'])).strip()
+                    edit_v_ab = st.number_input("V_ab", value=float(registro['v_ab']))
+                    edit_v_bc = st.number_input("V_bc", value=float(registro['v_bc']))
+                    edit_v_ca = st.number_input("V_ca", value=float(registro['v_ca']))
+                    edit_i_a = st.number_input("I_a", value=float(registro['i_a']))
+                    edit_i_b = st.number_input("I_b", value=float(registro['i_b']))
+                    edit_i_c = st.number_input("I_c", value=float(registro['i_c']))
                     edit_obs = st.text_area("Observaciones", value=str(registro['observaciones'] or ""))
 
-                    btn_actualizar = st.form_submit_button("💾 Guardar Cambios")
-
-                    if btn_actualizar:
-                        new_desb_v_ff = calcular_desbalance(edit_v_ab, edit_v_bc, edit_v_ca)
-                        new_desb_v_fn = calcular_desbalance(edit_v_an, edit_v_bn, edit_v_cn)
+                    btn_act = st.form_submit_button("💾 Guardar Cambios")
+                    if btn_act:
+                        new_desb_v = calcular_desbalance(edit_v_ab, edit_v_bc, edit_v_ca)
                         new_desb_i = calcular_desbalance(edit_i_a, edit_i_b, edit_i_c)
-
-                        if new_desb_v_ff > 2.0 or new_desb_v_fn > 2.0 or new_desb_i > 10.0 or edit_v_n_t > 5.0:
-                            new_estado = "Crítico"
-                        elif new_desb_v_ff > 1.0 or new_desb_v_fn > 1.0 or new_desb_i > 5.0 or edit_v_n_t > 2.0:
-                            new_estado = "Advertencia"
-                        else:
-                            new_estado = "Normal"
-
                         update_query = text("""
                         UPDATE inspecciones_bombas SET
-                            fecha = :fecha,
-                            equipo = :equipo,
-                            tipo = :tipo,
-                            v_ab = :v_ab, v_bc = :v_bc, v_ca = :v_ca,
-                            desbalance_v_ff = :desb_v_ff,
-                            v_an = :v_an, v_bn = :v_bn, v_cn = :v_cn,
-                            desbalance_v_fn = :desb_v_fn,
-                            i_a = :i_a, i_b = :i_b, i_c = :i_c,
-                            desbalance_i = :desb_i,
-                            v_n_tierra = :v_n_t,
-                            estado = :estado,
-                            observaciones = :observaciones
-                        WHERE id = :id;
+                            equipo = :equipo, v_ab = :v_ab, v_bc = :v_bc, v_ca = :v_ca,
+                            desbalance_v_ff = :desb_v, i_a = :i_a, i_b = :i_b, i_c = :i_c,
+                            desbalance_i = :desb_i, observaciones = :obs WHERE id = :id;
                         """)
-
-                        params_update = {
-                            "fecha": edit_fecha,
-                            "equipo": str(edit_equipo).strip(),
-                            "tipo": str(edit_tipo),
-                            "v_ab": float(edit_v_ab), "v_bc": float(edit_v_bc), "v_ca": float(edit_v_ca),
-                            "desb_v_ff": float(new_desb_v_ff),
-                            "v_an": float(edit_v_an), "v_bn": float(edit_v_bn), "v_cn": float(edit_v_cn),
-                            "desb_v_fn": float(new_desb_v_fn),
-                            "i_a": float(edit_i_a), "i_b": float(edit_i_b), "i_c": float(edit_i_c),
-                            "desb_i": float(new_desb_i),
-                            "v_n_t": float(edit_v_n_t),
-                            "estado": str(new_estado),
-                            "observaciones": str(edit_obs),
-                            "id": int(id_seleccionado)
-                        }
-
                         try:
                             with engine.begin() as conn:
-                                conn.execute(update_query, params_update)
-                            st.success(f"✅ Registro #{id_seleccionado} actualizado correctamente.")
+                                conn.execute(update_query, {
+                                    "equipo": edit_equipo, "v_ab": edit_v_ab, "v_bc": edit_v_bc, "v_ca": edit_v_ca,
+                                    "desb_v": new_desb_v, "i_a": edit_i_a, "i_b": edit_i_b, "i_c": edit_i_c,
+                                    "desb_i": new_desb_i, "obs": edit_obs, "id": int(id_seleccionado)
+                                })
+                            st.success(f"✅ Registro #{id_seleccionado} actualizado.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al actualizar: {e}")
 
         with col_accion2:
             with st.expander("🗑️ Eliminar Registro Seleccionado"):
-                st.warning(f"⚠️ ¿Deseas eliminar permanentemente el registro **ID #{id_seleccionado}**?")
-                
-                if st.button("❌ Confirmar Eliminación", key=f"del_{id_seleccionado}"):
-                    delete_query = text("DELETE FROM inspecciones_bombas WHERE id = :id;")
+                if st.button("❌ Confirmar Eliminación", key=f"del_med_{id_seleccionado}"):
                     try:
                         with engine.begin() as conn:
-                            conn.execute(delete_query, {"id": int(id_seleccionado)})
-                        st.success(f"🗑️ Registro #{id_seleccionado} eliminado exitosamente.")
+                            conn.execute(text("DELETE FROM inspecciones_bombas WHERE id = :id;"), {"id": int(id_seleccionado)})
+                        st.success(f"🗑️ Registro #{id_seleccionado} eliminado.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al eliminar: {e}")
 
 # ---------------------------------------------------------
-# PRUEBAS DE AISLAMIENTO (IEEE Std 43)
+# 7. PRUEBAS DE AISLAMIENTO (IEEE Std 43)
 # ---------------------------------------------------------
 elif opcion == "Pruebas de Aislamiento":
     st.title("⚡ Pruebas de Resistencia de Aislamiento (IEEE Std 43)")
-
     df_equipos_cat = obtener_equipos()
 
-    tab_nueva_p, tab_hist_p = st.tabs([
-        "🧪 Registrar Nueva Prueba", 
-        "📋 Historial y Tendencias"
-    ])
+    tab_nueva_p, tab_hist_p = st.tabs(["🧪 Registrar Nueva Prueba", "📋 Historial y Tendencias"])
 
     with tab_nueva_p:
-        st.subheader("Evaluación Térmica y Dieléctrica de Estator")
-        
         with st.form("form_prueba_aislamiento", clear_on_submit=True):
-            col_a1, col_a2 = st.columns(2)
-
-            with col_a1:
-                f_prueba = st.date_input("Fecha de la Prueba", value=datetime.today().date())
-                h_prueba = st.time_input("Hora de la Prueba", value=datetime.now().time())
-
+            c_a1, c_a2 = st.columns(2)
+            with c_a1:
+                f_prueba = st.date_input("Fecha", value=datetime.today().date())
+                h_prueba = st.time_input("Hora", value=datetime.now().time())
                 if not df_equipos_cat.empty:
-                    equipo_p = st.selectbox("Seleccionar Equipo / Motor *", df_equipos_cat["codigo_equipo"].tolist())
+                    no_serie_p, _ = selector_equipo_por_serie(df_equipos_cat, key_widget="sel_aisla_eq")
                 else:
-                    equipo_p = st.text_input("Identificador del Equipo *", value="Bomba-01")
+                    no_serie_p = st.text_input("Número de Serie *", value="SN-001")
+                v_aplicado = st.selectbox("Tensión de Prueba CD (Megger)", [500, 1000, 2500, 5000])
+                temp_c = st.number_input("Temperatura Devanado (°C)", value=25.0)
 
-                v_aplicado = st.selectbox("Tensión de Prueba Aplicada en CD (Megger) *", [500, 1000, 2500, 5000], index=0, help="500V o 1000V recomendados para motores <1000V (IEEE 43)")
-                temp_c = st.number_input("Temperatura del Devanado / Carcasa (°C) *", value=25.0, step=1.0, help="Dato clave para calcular la corrección R40")
+            with c_a2:
+                r_30s = st.number_input("Resistencia 30s (MΩ)", value=0.0)
+                r_1min = st.number_input("Resistencia 1 min (MΩ) *", value=15.0)
+                r_10min = st.number_input("Resistencia 10 min (MΩ)", value=0.0)
+                obs_prueba = st.text_area("Observaciones")
 
-            with col_a2:
-                st.markdown("**Lecturas de Resistencia (MΩ)**")
-                r_30s = st.number_input("Resistencia a los 30 segundos (MΩ)", value=0.0, step=1.0, help="Opcional: Requerido para índice DAR")
-                r_1min = st.number_input("Resistencia a 1 minuto (MΩ) *", value=15.0, step=1.0, help="Obligatorio para la norma IEEE 43")
-                r_10min = st.number_input("Resistencia a los 10 minutos (MΩ)", value=0.0, step=1.0, help="Opcional: Requerido para índice PI")
+            btn_evaluar = st.form_submit_button("📊 Evaluar e Guardar")
 
-                obs_prueba = st.text_area("Observaciones / Estado del Motor", placeholder="Ej. Motor en stand-by con calefacción encendida. Sin humedad aparente en caja de bornes.")
-
-            btn_calcular_guardar = st.form_submit_button("📊 Evaluar según IEEE 43 y Guardar")
-
-            if btn_calcular_guardar:
+            if btn_evaluar:
                 if r_1min <= 0:
-                    st.error("⚠️ La lectura de Resistencia a 1 minuto debe ser mayor a 0 MΩ.")
+                    st.error("⚠️ La lectura a 1 minuto debe ser mayor a 0 MΩ.")
                 else:
                     r_40c = r_1min * (0.5 ** ((40.0 - temp_c) / 10.0))
                     dar_val = round(r_1min / r_30s, 2) if r_30s > 0 else None
                     pi_val = round(r_10min / r_1min, 2) if r_10min > 0 else None
+                    diag_est = "CRÍTICO" if r_40c < 1.0 else ("ALERTA" if r_40c < 5.0 else ("ACEPTABLE" if r_40c < 100.0 else "EXCELENTE"))
 
-                    if r_40c < 1.0:
-                        diag_est = "CRÍTICO (Peligro de Falla a Tierra)"
-                    elif 1.0 <= r_40c < 5.0:
-                        diag_est = "ALERTA (Presencia de Humedad / Suciedad)"
-                    elif 5.0 <= r_40c < 100.0:
-                        diag_est = "ACEPTABLE (Apto para Operación)"
-                    else:
-                        diag_est = "EXCELENTE (Devanado Seco y Limpio)"
-
-                    fh_completa = datetime.combine(f_prueba, h_prueba)
                     q_ins_p = text("""
-                    INSERT INTO pruebas_aislamiento 
-                    (fecha_hora, equipo, voltaje_prueba_v, temp_devanado_c, r_30s_mohm, r_1min_mohm, r_10min_mohm, r_40c_mohm, dar, pi, diagnostico, observaciones, realizado_por)
+                    INSERT INTO pruebas_aislamiento (fecha_hora, equipo, voltaje_prueba_v, temp_devanado_c, r_30s_mohm, r_1min_mohm, r_10min_mohm, r_40c_mohm, dar, pi, diagnostico, observaciones, realizado_por)
                     VALUES (:fh, :eq, :v, :temp, :r30, :r1m, :r10m, :r40, :dar, :pi, :diag, :obs, :rep);
                     """)
-
-                    params_p = {
-                        "fh": fh_completa, "eq": str(equipo_p).strip(), "v": v_aplicado,
-                        "temp": temp_c, "r30": r_30s if r_30s > 0 else None, "r1m": r_1min,
-                        "r10m": r_10min if r_10min > 0 else None, "r40": round(r_40c, 2),
-                        "dar": dar_val, "pi": pi_val, "diag": diag_est,
-                        "obs": obs_prueba, "rep": st.session_state.usuario_actual
-                    }
-
                     try:
                         with engine.begin() as conn:
-                            conn.execute(q_ins_p, params_p)
-                        
-                        st.success("✅ Prueba registrada exitosamente.")
-                        
-                        st.markdown("### 📋 Resultados del Diagnóstico IEEE 43")
-                        mc1, mc2, mc3, mc4 = st.columns(4)
-                        mc1.metric("Lectura Directa (1 min)", f"{r_1min} MΩ")
-                        mc2.metric("Corregida a 40 °C (R40)", f"{round(r_40c, 2)} MΩ")
-                        mc3.metric("Índice DAR", f"{dar_val if dar_val else 'N/A'}")
-                        mc4.metric("Índice PI", f"{pi_val if pi_val else 'N/A'}")
-
-                        if r_40c < 5.0:
-                            st.error(f" **Diagnóstico:** {diag_est}")
-                        else:
-                            st.success(f" **Diagnóstico:** {diag_est}")
-
+                            conn.execute(q_ins_p, {
+                                "fh": datetime.combine(f_prueba, h_prueba), "eq": str(no_serie_p).strip(),
+                                "v": v_aplicado, "temp": temp_c, "r30": r_30s if r_30s > 0 else None,
+                                "r1m": r_1min, "r10m": r_10min if r_10min > 0 else None, "r40": round(r_40c, 2),
+                                "dar": dar_val, "pi": pi_val, "diag": diag_est, "obs": obs_prueba, "rep": st.session_state.usuario_actual
+                            })
+                        st.success(f"✅ Prueba guardada para S/N **{no_serie_p}** (Diagnóstico: {diag_est}).")
                     except Exception as e:
-                        st.error(f"❌ Error al guardar en base de datos: {e}")
+                        st.error(f"❌ Error al guardar en BD: {e}")
 
     with tab_hist_p:
         df_p = obtener_pruebas_aislamiento()
-
-        if df_p.empty:
-            st.info("Aún no se han registrado pruebas de aislamiento.")
-        else:
-            st.subheader("📋 Registro Histórico de Pruebas")
-
-            eq_unicos = df_p["equipo"].unique().tolist()
-            f_eq_p = st.multiselect("Filtrar por Equipo:", eq_unicos, default=eq_unicos)
-
-            df_p_filt = df_p[df_p["equipo"].isin(f_eq_p)]
-
-            st.dataframe(df_p_filt, use_container_width=True)
-
-            csv_p = df_p_filt.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Exportar Pruebas de Aislamiento a CSV",
-                data=csv_p,
-                file_name=f"pruebas_aislamiento_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+        if not df_p.empty:
+            st.dataframe(df_p, use_container_width=True)
 
 # ---------------------------------------------------------
-# 7. MI PERFIL
+# 8. MI PERFIL
 # ---------------------------------------------------------
 elif opcion == "Mi Perfil":
     st.title("👤 Configuración de Perfil")
@@ -2442,28 +1596,18 @@ elif opcion == "Mi Perfil":
             elif pass_nueva != pass_confirm:
                 st.error("La nueva contraseña y su confirmación no coinciden.")
             else:
-                query_check = text("SELECT password_hash FROM usuarios WHERE username = :u;")
-                
                 with engine.connect() as conn:
-                    user_db = conn.execute(query_check, {"u": st.session_state.username_actual}).fetchone()
+                    user_db = conn.execute(text("SELECT password_hash FROM usuarios WHERE username = :u;"), {"u": st.session_state.username_actual}).fetchone()
                 
                 if user_db and check_password(pass_actual, user_db.password_hash):
-                    update_q = text("""
-                        UPDATE usuarios 
-                        SET password_hash = :p 
-                        WHERE username = :u;
-                    """)
                     with engine.begin() as conn:
-                        conn.execute(update_q, {
-                            "p": hash_password(pass_nueva),
-                            "u": st.session_state.username_actual
-                        })
+                        conn.execute(text("UPDATE usuarios SET password_hash = :p WHERE username = :u;"), {"p": hash_password(pass_nueva), "u": st.session_state.username_actual})
                     st.success("✅ Contraseña actualizada correctamente.")
                 else:
                     st.error("❌ La contraseña actual es incorrecta.")
 
 # ---------------------------------------------------------
-# VISTA: GESTIÓN DE USUARIOS (SOLO ADMINS)
+# 9. GESTIÓN DE USUARIOS (ADMIN)
 # ---------------------------------------------------------
 if opcion == "Gestión de Usuarios":
     if not es_admin():
@@ -2471,84 +1615,39 @@ if opcion == "Gestión de Usuarios":
         st.stop()
 
     st.title("👥 Gestión de Usuarios y Permisos")
-    st.markdown("---")
+    tab_crear, tab_listar = st.tabs(["➕ Crear Nuevo Usuario", "📋 Usuarios Registrados"])
 
-    tab_crear, tab_listar = st.tabs(["➕ Crear Nuevo Usuario", "📋 Usuarios Registrados y Permisos"])
-
-    # 1. CREAR USUARIO
     with tab_crear:
-        st.subheader("Registrar nuevo usuario")
         with st.form("form_crear_usuario", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                nuevo_username = st.text_input("Nombre de Usuario (Login)", placeholder="ej. jperez").strip().lower()
+            c1, c2 = st.columns(2)
+            with c1:
+                nuevo_username = st.text_input("Nombre de Usuario", placeholder="ej. jperez").strip().lower()
                 nombre_completo = st.text_input("Nombre Completo", placeholder="ej. Juan Pérez")
-            with col2:
+            with c2:
                 nuevo_pass = st.text_input("Contraseña Temporal", type="password")
-                rol_seleccionado = st.selectbox("Rol en el Sistema", ["tecnico", "operador", "admin"])
+                rol_seleccionado = st.selectbox("Rol", ["tecnico", "operador", "admin"])
 
             btn_crear = st.form_submit_button("Guardar Usuario")
-
             if btn_crear:
                 if not nuevo_username or not nuevo_pass or not nombre_completo:
                     st.warning("⚠️ Todos los campos son obligatorios.")
-                elif len(nuevo_pass) < 8:
-                    st.warning("⚠️ La contraseña debe tener al menos 8 caracteres.")
                 else:
                     try:
                         pass_hash = hash_password(nuevo_pass)
                         with engine.begin() as conn:
-                            # Verificar disponibilidad de username
-                            user_exists = conn.execute(
-                                text("SELECT COUNT(*) FROM usuarios WHERE username = :u;"),
-                                {"u": nuevo_username}
-                            ).scalar()
-
+                            user_exists = conn.execute(text("SELECT COUNT(*) FROM usuarios WHERE username = :u;"), {"u": nuevo_username}).scalar()
                             if user_exists > 0:
                                 st.error(f"❌ El usuario '{nuevo_username}' ya existe.")
                             else:
-                                conn.execute(
-                                    text("""
-                                        INSERT INTO usuarios (username, password_hash, nombre, rol)
-                                        VALUES (:u, :p, :n, :r);
-                                    """),
-                                    {"u": nuevo_username, "p": pass_hash, "n": nombre_completo, "r": rol_seleccionado}
-                                )
+                                conn.execute(text("INSERT INTO usuarios (username, password_hash, nombre, rol) VALUES (:u, :p, :n, :r);"), {"u": nuevo_username, "p": pass_hash, "n": nombre_completo, "r": rol_seleccionado})
                                 st.success(f"✅ Usuario **{nuevo_username}** creado exitosamente.")
                     except Exception as err:
-                        st.error(f"Error al guardar en la base de datos: {err}")
+                        st.error(f"Error al guardar: {err}")
 
-    # 2. LISTAR Y ADMINISTRAR USUARIOS
     with tab_listar:
-        st.subheader("Administración de Cuentas")
         try:
             with engine.connect() as conn:
-                df_usr = pd.read_sql(
-                    text("SELECT id, username, nombre, rol, intentos_fallidos, bloqueado_hasta FROM usuarios ORDER BY id ASC;"), 
-                    conn
-                )
-            
-            if df_usr.empty:
-                st.info("No hay usuarios registrados.")
-            else:
-                st.dataframe(df_usr, use_container_width=True)
-                
-                st.markdown("---")
-                st.subheader("🛠️ Desbloqueo / Restablecimiento de Cuentas")
-                
-                usr_bloqueados = df_usr[df_usr['intentos_fallidos'] > 0]
-                if not usr_bloqueados.empty:
-                    u_unblock = st.selectbox("Seleccionar usuario a desbloquear:", usr_bloqueados['username'].tolist())
-                    if st.button("🔓 Restablecer Intentos / Desbloquear"):
-                        with engine.begin() as conn:
-                            conn.execute(
-                                text("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE username = :u;"),
-                                {"u": u_unblock}
-                            )
-                        st.success(f"✅ Usuario **{u_unblock}** desbloqueado correctamente.")
-                        st.rerun()
-                else:
-                    st.info("🟢 No hay usuarios bloqueados actualmente.")
-
+                df_usr = pd.read_sql(text("SELECT id, username, nombre, rol, intentos_fallidos FROM usuarios ORDER BY id ASC;"), conn)
+            st.dataframe(df_usr, use_container_width=True)
         except Exception as err:
-            st.error(f"Error al consultar la tabla de usuarios: {err}")
+            st.error(f"Error al consultar usuarios: {err}")
