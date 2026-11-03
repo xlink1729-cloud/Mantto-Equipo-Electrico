@@ -1173,6 +1173,7 @@ elif opcion == "🔥 Inspección Termográfica (FLIR)":
 # ---------------------------------------------------------
 elif opcion == "Registro de Eventos":
     st.title("🚨 Bitácora y Registro de Eventos")
+
     df_equipos_cat = obtener_equipos()
 
     tab_nuevo, tab_historial, tab_gestion = st.tabs([
@@ -1236,7 +1237,7 @@ elif opcion == "Registro de Eventos":
 
                 params_ev = {
                     "fh": fecha_hora_completa,
-                    "eq": str(no_serie_ev).strip(), # Almacena no_serie
+                    "eq": str(no_serie_ev).strip(), 
                     "te": tipo_ev,
                     "sev": severidad_ev,
                     "desc": descripcion_ev,
@@ -1266,15 +1267,21 @@ elif opcion == "Registro de Eventos":
 
     with tab_historial:
         df_eventos = obtener_eventos()
+        df_cat = obtener_equipos()
         
         if df_eventos.empty:
             st.info("Aún no hay eventos ni incidentes registrados.")
         else:
+            # Mapeo inteligente para mostrar la posición actual si el registro viejo tiene guardado un nombre de posición
+            map_serie_a_pos = dict(zip(df_cat['no_serie'].str.strip(), df_cat['codigo_equipo'].str.strip())) if not df_cat.empty else {}
+            
+            df_eventos['posicion_mostrada'] = df_eventos['equipo'].map(map_serie_a_pos).fillna(df_eventos['equipo'])
+
             df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora", key_suffix="registro_eventos")
 
             f_col1, f_col2 = st.columns(2)
             with f_col1:
-                filtro_eq = st.multiselect("Filtrar por S/N Motor:", df_eventos["equipo"].dropna().unique())
+                filtro_eq = st.multiselect("Filtrar por Motor / S/N:", df_eventos["equipo"].dropna().unique())
             with f_col2:
                 filtro_sev = st.multiselect("Filtrar por Severidad:", df_eventos["severidad"].dropna().unique())
 
@@ -1290,7 +1297,10 @@ elif opcion == "Registro de Eventos":
                 estatus = row.get('estatus', 'Abierto')
                 icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
                 
-                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **S/N: {row['equipo']}** — {row['tipo_evento']} [{estatus}]"
+                # Título limpio mostrando posición actual y número de serie
+                pos_txt = row['posicion_mostrada']
+                serial_txt = row['equipo']
+                titulo_tarjeta = f"{icono_est} ID #{row['id']} | **Pos: {pos_txt}** (S/N: {serial_txt}) — {row['tipo_evento']} [{estatus}]"
                 
                 with st.expander(titulo_tarjeta):
                     c1, c2, c3 = st.columns(3)
@@ -1315,16 +1325,21 @@ elif opcion == "Registro de Eventos":
 
     with tab_gestion:
         df_eventos = obtener_eventos()
+        df_cat_ges = obtener_equipos()
 
         if df_eventos.empty:
             st.info("No hay eventos registrados para modificar o eliminar.")
         else:
             st.subheader("🛠️ Administrar o Reconectar / Cerrar Eventos")
             
-            opciones_eventos = {
-                f"ID #{row['id']} | S/N: {row['equipo']} | {row['tipo_evento']} [{row['estatus']}]": row['id']
-                for _, row in df_eventos.iterrows()
-            }
+            map_s_p = dict(zip(df_cat_ges['no_serie'].str.strip(), df_cat_ges['codigo_equipo'].str.strip())) if not df_cat_ges.empty else {}
+
+            opciones_eventos = {}
+            for _, row in df_eventos.iterrows():
+                serial_val = str(row['equipo']).strip()
+                pos_val = map_s_p.get(serial_val, serial_val)
+                label_opt = f"ID #{row['id']} | Pos: {pos_val} (S/N: {serial_val}) | {row['tipo_evento']} [{row['estatus']}]"
+                opciones_eventos[label_opt] = row['id']
             
             label_evt_sel = st.selectbox("Selecciona el evento a gestionar:", list(opciones_eventos.keys()))
             id_evt_sel = opciones_eventos[label_evt_sel]
@@ -1338,7 +1353,7 @@ elif opcion == "Registro de Eventos":
                         st.success(f"✅ El evento ID #{id_evt_sel} ya se encuentra resuelto/cerrado.")
                     else:
                         with st.form(f"form_cerrar_evt_{id_evt_sel}", clear_on_submit=True):
-                            st.caption(f"**S/N Motor:** {evt_registro['equipo']}")
+                            st.caption(f"**Motor S/N:** {evt_registro['equipo']}")
                             st.caption(f"**Causa inicial:** {evt_registro['tipo_evento']}")
                             
                             nuevo_estatus = st.selectbox("Nuevo Estatus", ["Resuelto", "En Revisión"])
@@ -1447,7 +1462,7 @@ elif opcion == "Registro de Eventos":
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al eliminar: {e}")
-
+                            
 # ---------------------------------------------------------
 # 6. HISTORIAL DE MEDICIONES
 # ---------------------------------------------------------
