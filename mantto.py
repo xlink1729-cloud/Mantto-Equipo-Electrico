@@ -721,25 +721,40 @@ if opcion == "Dashboard & KPIs":
         if df_equipos.empty:
             st.info("No hay equipos registrados en el catálogo.")
         else:
+            # Obtenemos los eventos activos actuales para cruzar alertas por S/N
+            try:
+                with engine.connect() as conn:
+                    df_ev_activos = pd.read_sql(text("SELECT equipo, severidad, tipo_evento FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
+                sn_con_eventos = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
+            except Exception:
+                sn_con_eventos = set()
+
             df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
             ubicaciones = sorted(df_equipos['ubicacion'].unique())
+            
             for ub in ubicaciones:
                 df_grupo = df_equipos[df_equipos['ubicacion'] == ub]
                 with st.expander(f"📍 Área: {ub} ({len(df_grupo)} activos)", expanded=True):
                     cols_grid = st.columns(3)
                     for idx, row in df_grupo.reset_index(drop=True).iterrows():
                         col_idx = idx % 3
-                        serial = row['no_serie']
+                        serial = str(row['no_serie']).strip()
                         codigo = row['codigo_equipo']
-                        badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
-                        st_color = "eq-border-ok"
                         
-                        if "fuera" in str(row.get('estatus', '')).lower():
+                        # Lógica de semáforo inteligente:
+                        # Si tiene un evento abierto, prevalece la alerta aunque esté operando físicamente
+                        if serial in sn_con_eventos:
+                            st_color = "eq-border-warning"
+                            badge_txt = "⚠️ En Alerta / Incidencia"
+                        elif "fuera" in str(row.get('estatus', '')).lower():
                             st_color = "eq-border-danger"
                             badge_txt = "🔴 Fuera de Servicio"
                         elif "standby" in str(row.get('estatus', '')).lower():
                             st_color = "eq-border-standby"
                             badge_txt = "⏸️ Standby"
+                        else:
+                            st_color = "eq-border-ok"
+                            badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
 
                         with cols_grid[col_idx]:
                             st.markdown(f"""
