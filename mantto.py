@@ -1246,12 +1246,18 @@ elif opcion == "Registro de Eventos":
                     "rep": usuario_actual
                 }
 
-                estado_catalogo = "Operativo" if estatus_ev == "Resuelto" else estatus_ev
+                # Mapeo correcto para el semáforo del catálogo
+                if estatus_ev == "Resuelto":
+                    estado_catalogo = "Operativo"
+                elif estatus_ev == "En Revisión":
+                    estado_catalogo = "En Mantenimiento"
+                else:
+                    estado_catalogo = "Fuera de Servicio"
 
                 q_upd_equipo = text("""
                     UPDATE catalogo_equipos 
                     SET estatus = :est 
-                    WHERE TRIM(no_serie) = TRIM(:eq);
+                    WHERE TRIM(no_serie) = TRIM(:eq) OR TRIM(codigo_equipo) = TRIM(:eq);
                 """)
 
                 try:
@@ -1272,9 +1278,7 @@ elif opcion == "Registro de Eventos":
         if df_eventos.empty:
             st.info("Aún no hay eventos ni incidentes registrados.")
         else:
-            # Mapeo inteligente para mostrar la posición actual si el registro viejo tiene guardado un nombre de posición
             map_serie_a_pos = dict(zip(df_cat['no_serie'].str.strip(), df_cat['codigo_equipo'].str.strip())) if not df_cat.empty else {}
-            
             df_eventos['posicion_mostrada'] = df_eventos['equipo'].map(map_serie_a_pos).fillna(df_eventos['equipo'])
 
             df_evt_filtered = aplicar_filtros_tabla(df_eventos, col_fecha="fecha_hora", key_suffix="registro_eventos")
@@ -1297,7 +1301,6 @@ elif opcion == "Registro de Eventos":
                 estatus = row.get('estatus', 'Abierto')
                 icono_est = "🟢" if estatus == "Resuelto" else ("🟡" if estatus == "En Revisión" else "🔴")
                 
-                # Título limpio mostrando posición actual y número de serie
                 pos_txt = row['posicion_mostrada']
                 serial_txt = row['equipo']
                 titulo_tarjeta = f"{icono_est} ID #{row['id']} | **Pos: {pos_txt}** (S/N: {serial_txt}) — {row['tipo_evento']} [{estatus}]"
@@ -1380,9 +1383,14 @@ elif opcion == "Registro de Eventos":
                                     q_close_evt = text("""
                                         UPDATE registro_eventos SET estatus = :est, accion_tomada = :acc WHERE id = :id;
                                     """)
-                                    estado_equipo = "Operativo" if nuevo_estatus == "Resuelto" else nuevo_estatus
+                                    
+                                    if nuevo_estatus == "Resuelto":
+                                        estado_equipo = "Operativo"
+                                    else:
+                                        estado_equipo = "En Mantenimiento"
+
                                     q_upd_eq_close = text("""
-                                        UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq);
+                                        UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq) OR TRIM(codigo_equipo) = TRIM(:eq);
                                     """)
 
                                     try:
@@ -1405,7 +1413,15 @@ elif opcion == "Registro de Eventos":
 
                         edit_f_ev = st.date_input("Fecha", value=fh_val.date())
                         edit_h_ev = st.time_input("Hora", value=fh_val.time())
-                        edit_eq_ev = st.text_input("S/N Motor", value=str(evt_registro['equipo'])).strip()
+                        
+                        # Selector seguro de número de serie en lugar de texto libre para evitar errores
+                        if not df_cat_ges.empty:
+                            lista_sn_opt = df_cat_ges['no_serie'].astype(str).str.strip().tolist()
+                            current_sn = str(evt_registro['equipo']).strip()
+                            idx_sn = lista_sn_opt.index(current_sn) if current_sn in lista_sn_opt else 0
+                            edit_eq_ev = st.selectbox("S/N Motor Correcto", lista_sn_opt, index=idx_sn)
+                        else:
+                            edit_eq_ev = st.text_input("S/N Motor", value=str(evt_registro['equipo'])).strip()
 
                         tipos_evt_lista = ["Desconexión por daño mecánico", "Falla eléctrica / Sobrevoltaje", "Paro de emergencia", "Mantenimiento no programado", "Fuga o Sobrecalentamiento", "Otro"]
                         idx_tipo_evt = tipos_evt_lista.index(evt_registro['tipo_evento']) if evt_registro['tipo_evento'] in tipos_evt_lista else 0
@@ -1432,10 +1448,17 @@ elif opcion == "Registro de Eventos":
                             q_upd_evt = text("""
                                 UPDATE registro_eventos SET fecha_hora = :fh, equipo = :eq, tipo_evento = :te, descripcion = :desc, accion_tomada = :acc, estatus = :est WHERE id = :id;
                             """)
+                            
+                            if edit_est_ev == "Resuelto":
+                                estado_cat = "Operativo"
+                            elif edit_est_ev == "En Revisión":
+                                estado_cat = "En Mantenimiento"
+                            else:
+                                estado_cat = "Fuera de Servicio"
+
                             q_upd_eq_cat = text("""
-                                UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq);
+                                UPDATE catalogo_equipos SET estatus = :est WHERE TRIM(no_serie) = TRIM(:eq) OR TRIM(codigo_equipo) = TRIM(:eq);
                             """)
-                            estado_cat = "Operativo" if edit_est_ev == "Resuelto" else edit_est_ev
 
                             try:
                                 with engine.begin() as conn:
@@ -1452,7 +1475,7 @@ elif opcion == "Registro de Eventos":
                     st.warning(f"⚠️ ¿Eliminar registro **ID #{id_evt_sel}**?")
                     if st.button("❌ Confirmar Eliminación", key=f"del_evt_{id_evt_sel}"):
                         q_del_evt = text("DELETE FROM registro_eventos WHERE id = :id;")
-                        q_upd_eq_del = text("UPDATE catalogo_equipos SET estatus = 'Operativo' WHERE TRIM(no_serie) = TRIM(:eq);")
+                        q_upd_eq_del = text("UPDATE catalogo_equipos SET estatus = 'Operativo' WHERE TRIM(no_serie) = TRIM(:eq) OR TRIM(codigo_equipo) = TRIM(:eq);")
                         try:
                             with engine.begin() as conn:
                                 conn.execute(q_del_evt, {"id": int(id_evt_sel)})
