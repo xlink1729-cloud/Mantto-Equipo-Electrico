@@ -820,18 +820,72 @@ if opcion == "Dashboard & KPIs":
             st.plotly_chart(fig_vector, use_container_width=True)
 
     with tab_scatter:
-        st.subheader("📈 Análisis de Parámetros Operativos")
+        st.subheader("📈 Análisis de Parámetros Operativos (Basado en Normativa NEMA MG 1 e IEEE)")
         df_insp = obtener_datos()
-        if not df_insp.empty:
+        if df_insp.empty:
+            st.info("No hay registros de inspección suficientes para el análisis gráfico.")
+        else:
             df_graf = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            
+            # --- CLASIFICACIÓN BASADA EN NORMATIVA ---
+            def color_desbalance(val):
+                if val > 10.0:
+                    return 'Crítico (>10%)'
+                elif val >= 5.0:
+                    return 'Advertencia (5-10%)'
+                else:
+                    return 'Normal (<5%)'
+
+            def color_factor_carga(val):
+                if val > 115.0:
+                    return 'Sobrecarga Crítica (>115%)'
+                elif val > 100.0:
+                    return 'Sobrecarga Leve (100-115%)'
+                elif val >= 70.0:
+                    return 'Óptimo (70-100%)'
+                else:
+                    return 'Subcarga (<70%)'
+
+            df_graf['semaforo_desbal'] = df_graf['desbalance_i'].apply(color_desbalance)
+            df_graf['semaforo_fc'] = df_graf['factor_carga'].apply(color_factor_carga)
+
+            # Paleta de colores estricta de ingeniería
+            color_map_db = {
+                'Normal (<5%)': '#22c55e',       # Verde
+                'Advertencia (5-10%)': '#eab308', # Amarillo
+                'Crítico (>10%)': '#ef4444'      # Rojo
+            }
+
+            color_map_fc = {
+                'Subcarga (<70%)': '#0284c7',         # Azul
+                'Óptimo (70-100%)': '#22c55e',        # Verde
+                'Sobrecarga Leve (100-115%)': '#eab308', # Amarillo
+                'Sobrecarga Crítica (>115%)': '#ef4444'  # Rojo
+            }
+
             c_g1, c_g2 = st.columns(2)
             with c_g1:
-                fig_fc = px.bar(df_graf, x='equipo', y='factor_carga', color='factor_carga', title="Factor de Carga (%) por S/N Motor")
+                fig_fc = px.bar(
+                    df_graf, x='equipo', y='factor_carga', color='semaforo_fc',
+                    color_discrete_map=color_map_fc,
+                    title="Factor de Carga (%) vs. Límites NEMA"
+                )
+                # Líneas de referencia normativas
+                fig_fc.add_hline(y=100, line_dash="dash", line_color="#eab308", annotation_text="Nominal (100%)")
+                fig_fc.add_hline(y=115, line_dash="dash", line_color="#ef4444", annotation_text="Máx. F.S. (115%)")
                 st.plotly_chart(fig_fc, use_container_width=True)
-            with c_g2:
-                fig_db = px.bar(df_graf, x='equipo', y='desbalance_i', color='desbalance_i', title="Desbalance de Corriente (%) por S/N Motor")
-                st.plotly_chart(fig_db, use_container_width=True)
 
+            with c_g2:
+                fig_db = px.bar(
+                    df_graf, x='equipo', y='desbalance_i', color='semaforo_desbal',
+                    color_discrete_map=color_map_db,
+                    title="Desbalance de Corriente (%) vs. Estándar NEMA MG 1"
+                )
+                # Líneas de referencia normativas
+                fig_db.add_hline(y=5, line_dash="dash", line_color="#eab308", annotation_text="Alerta (5%)")
+                fig_db.add_hline(y=10, line_dash="dash", line_color="#ef4444", annotation_text="Crítico (10%)")
+                st.plotly_chart(fig_db, use_container_width=True)
+                
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
 # ---------------------------------------------------------
