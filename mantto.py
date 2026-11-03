@@ -756,17 +756,22 @@ if opcion == "Dashboard & KPIs":
                         col_idx = idx % 3
                         serial = str(row['no_serie']).strip()
                         codigo = str(row['codigo_equipo']).strip()
+                        estatus_cat = str(row.get('estatus', '')).lower().strip()
                         
-                        # Cruce dual: Si el S/N O el código de posición tienen un evento abierto, salta la alerta
-                        if serial in identificadores_con_eventos or codigo in identificadores_con_eventos:
-                            st_color = "eq-border-warning"
-                            badge_txt = "⚠️ En Alerta / Incidencia"
-                        elif "fuera" in str(row.get('estatus', '')).lower():
+                        # JERARQUÍA CORRECTA DEL SEMÁFORO:
+                        # 1. Si está fuera de servicio en el catálogo -> ROJO (Prioridad máxima)
+                        if "fuera" in estatus_cat or "baja" in estatus_cat or "paro" in estatus_cat:
                             st_color = "eq-border-danger"
                             badge_txt = "🔴 Fuera de Servicio"
-                        elif "standby" in str(row.get('estatus', '')).lower():
+                        # 2. Si está en Standby -> AZUL
+                        elif "standby" in estatus_cat or "reserva" in estatus_cat:
                             st_color = "eq-border-standby"
                             badge_txt = "⏸️ Standby"
+                        # 3. Si sigue operando pero tiene evento abierto -> NARANJA (Alerta de equipo trabajando con falla)
+                        elif serial in identificadores_con_eventos or codigo in identificadores_con_eventos:
+                            st_color = "eq-border-warning"
+                            badge_txt = "⚠️ En Alerta / Incidencia"
+                        # 4. Si todo está bien -> VERDE
                         else:
                             st_color = "eq-border-ok"
                             badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
