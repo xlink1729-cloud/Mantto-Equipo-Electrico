@@ -923,7 +923,8 @@ elif opcion == "Catálogo de Equipos":
             with c_edit:
                 with st.expander("✏️ Editar Ficha o Cambiar de Posición (Reubicar)", expanded=True):
                     with st.form(f"form_edit_sn_{target_sn}"):
-                        st.info(f"🔑 **Número de Serie Master:** {target_sn}")
+                        # Permitir editar o asignar un S/N interno (vital para motores reconstruidos sin placa como M-28)
+                        edit_no_serie = st.text_input("Número de Serie Master (S/N) *", value=target_sn)
                         
                         edit_pos = st.text_input("Posición Operativa / Código (ej. M-29)", value=str(eq_reg.get('codigo_equipo', '') or ""))
                         edit_ubic = st.text_input("Ubicación en Planta", value=str(eq_reg.get('ubicacion', '') or ""))
@@ -958,6 +959,7 @@ elif opcion == "Catálogo de Equipos":
                         if btn_upd:
                             q_upd_eq = text("""
                             UPDATE catalogo_equipos SET
+                                no_serie = :nuevo_ns,
                                 codigo_equipo = :cod,
                                 ubicacion = :ub,
                                 marca_modelo = :mm,
@@ -970,11 +972,12 @@ elif opcion == "Catálogo de Equipos":
                                 rpm = :rpm,
                                 estatus = :est,
                                 observaciones = :obs
-                            WHERE TRIM(no_serie) = TRIM(:ns);
+                            WHERE TRIM(no_serie) = TRIM(:ns) OR (no_serie IS NULL OR no_serie = '');
                             """)
                             try:
                                 with engine.begin() as conn:
                                     conn.execute(q_upd_eq, {
+                                        "nuevo_ns": edit_no_serie.strip(),
                                         "cod": edit_pos.strip(), "ub": edit_ubic, "mm": edit_marca,
                                         "fr": edit_frame, "bsup": edit_bsup.strip(), "binf": edit_binf.strip(),
                                         "php": edit_pot, "vnom": edit_vnom, "inom": edit_inom,
