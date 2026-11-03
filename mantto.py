@@ -676,11 +676,6 @@ if opcion == "Dashboard & KPIs":
         st.error(f"Error al cargar datos del Dashboard: {e}")
         df_elec, df_termo, df_equipos, df_eventos_kpi = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    eventos_activos_kpi = pd.DataFrame()
-    if not df_eventos_kpi.empty and 'equipo' in df_eventos_kpi.columns:
-        df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
-        eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
-
     # ---------------------------------------------------------
     # CÁLCULO UNIFICADO Y REAL DE KPIS Y SEMÁFORO
     # ---------------------------------------------------------
@@ -688,7 +683,6 @@ if opcion == "Dashboard & KPIs":
     equipos_standby, equipos_fuera = 0, 0
     alertas_criticas, alertas_advertencia = 0, 0
 
-    # 1. Obtener eventos activos de la bitácora (incluyendo S/N y códigos de posición)
     try:
         with engine.connect() as conn:
             df_ev_activos = pd.read_sql(text("SELECT equipo, severidad FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
@@ -697,20 +691,16 @@ if opcion == "Dashboard & KPIs":
 
     ids_con_incidencia = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
 
-    # 2. Recorrido unificado idéntico a la jerarquía del semáforo visual
     if not df_equipos.empty:
         for _, row in df_equipos.iterrows():
             est_cat = str(row.get('estatus', '')).lower().strip()
             serial = str(row.get('no_serie', '')).strip()
             codigo = str(row.get('codigo_equipo', '')).strip()
 
-            # Jerarquía 1: Fuera de servicio (Rojo)
             if "fuera" in est_cat or "baja" in est_cat or "paro" in est_cat:
                 equipos_fuera += 1
-            # Jerarquía 2: Standby (Azul)
             elif "standby" in est_cat or "reserva" in est_cat:
                 equipos_standby += 1
-            # Jerarquía 3: Operando pero con incidencia abierta (Naranja / Alerta)
             elif serial in ids_con_incidencia or codigo in ids_con_incidencia:
                 sev_row = df_ev_activos[
                     (df_ev_activos['equipo'].astype(str).str.strip() == serial) | 
@@ -729,7 +719,7 @@ if opcion == "Dashboard & KPIs":
     else:
         salud_global = 100
 
-    # --- RENDERIZADO DE TARJETAS SUPERIORES (KPIs) ---
+    # RENDERIZADO DE TARJETAS SUPERIORES (KPIs)
     st.markdown("<br>", unsafe_allow_html=True)
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     with kpi1:
@@ -745,7 +735,9 @@ if opcion == "Dashboard & KPIs":
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     
-    # --- CREACIÓN DE PESTAÑAS ---
+    # ---------------------------------------------------------
+    # PESTAÑAS DEL DASHBOARD (SEMÁFORO, FASORIAL Y FACTOR DE CARGA)
+    # ---------------------------------------------------------
     tab_fleet, tab_radar, tab_scatter = st.tabs(["🎛️ Estado de Equipos (Semáforo)", "📐 Diagrama Fasorial", "📈 Factor de Carga vs. Salud"])
 
     with tab_fleet:
@@ -799,6 +791,47 @@ if opcion == "Dashboard & KPIs":
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
+                            
+    with tab_radar:
+        st.subheader("📐 Diagrama Fasorial Trifásico")
+        df_insp = obtener_datos()
+        if df_insp.empty:
+            st.info("No hay registros de inspección.")
+        else:
+            df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            col_eq, col_tipo = st.columns([2, 1])
+            with col_eq:
+                equipo_sel = st.selectbox("Selecciona S/N Motor:", df_reciente['equipo'].unique().tolist(), key="select_fasorial")
+            with col_tipo:
+                tipo_param = st.radio("Parámetro:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
+            
+            datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
+            if tipo_param == "Corriente (A)":
+                magnitudes = [float(datos_eq.get('i_a', 0)), float(datos_eq.get('i_b', 0)), float(datos_eq.get('i_c', 0))]
+                unidad = "A"
+            else:
+                magnitudes = [float(datos_eq.get('v_ab', 0)), float(datos_eq.get('v_bc', 0)), float(datos_eq.get('v_ca', 0))]
+                unidad = "V"
+
+            fig_vector = go.Figure()
+            for ang, mag, fase, color in zip([0, 120, 240], magnitudes, ['Fase A', 'Fase B', 'Fase C'], ['#e74c3c', '#f1c40f', '#3498db']):
+                fig_vector.add_trace(go.Scatterpolar(r=[0, mag], theta=[ang, ang], mode='lines+markers', name=f"{fase}: {mag:.1f} {unidad}", line=dict(color=color, width=4)))
+            
+            fig_vector.update_layout(polar=dict(radialaxis=dict(visible=True), angularaxis=dict(tickvals=[0, 120, 240], ticktext=['0° (L1)', '120° (L2)', '240° (L3)'])), height=400)
+            st.plotly_chart(fig_vector, use_container_width=True)
+
+    with tab_scatter:
+        st.subheader("📈 Análisis de Parámetros Operativos")
+        df_insp = obtener_datos()
+        if not df_insp.empty:
+            df_graf = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
+            c_g1, c_g2 = st.columns(2)
+            with c_g1:
+                fig_fc = px.bar(df_graf, x='equipo', y='factor_carga', color='factor_carga', title="Factor de Carga (%) por S/N Motor")
+                st.plotly_chart(fig_fc, use_container_width=True)
+            with c_g2:
+                fig_db = px.bar(df_graf, x='equipo', y='desbalance_i', color='desbalance_i', title="Desbalance de Corriente (%) por S/N Motor")
+                st.plotly_chart(fig_db, use_container_width=True)
 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
