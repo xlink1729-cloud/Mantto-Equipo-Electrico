@@ -681,13 +681,56 @@ if opcion == "Dashboard & KPIs":
         df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
         eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
 
+    # ---------------------------------------------------------
+    # CÁLCULO UNIFICADO Y REAL DE KPIS (Semáforo vs Contadores)
+    # ---------------------------------------------------------
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
     equipos_standby, equipos_fuera = 0, 0
+    alertas_criticas, alertas_advertencia = 0, 0
 
-    if not df_equipos.empty and 'estatus' in df_equipos.columns:
-        df_equipos['cat_estado_norm'] = df_equipos['estatus'].astype(str).str.lower().str.strip()
-        equipos_standby = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('standby|reserva', na=False)])
-        equipos_fuera = len(df_equipos[df_equipos['cat_estado_norm'].str.contains('fuera|baja|paro', na=False)])
+    # 1. Obtener eventos activos de la bitácora
+    try:
+        with engine.connect() as conn:
+            df_ev_activos = pd.read_sql(text("SELECT equipo, severidad FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
+    except Exception:
+        df_ev_activos = pd.DataFrame()
+
+    ids_con_incidencia = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
+
+    # 2. Recorrido unificado por el catálogo de equipos
+    if not df_equipos.empty:
+        for _, row in df_equipos.iterrows():
+            est_cat = str(row.get('estatus', '')).lower().strip()
+            serial = str(row.get('no_serie', '')).strip()
+            codigo = str(row.get('codigo_equipo', '')).strip()
+
+            # Conteo de equipos Standby
+            if 'standby' in est_cat or 'reserva' in est_cat:
+                equipos_standby += 1
+            
+            # Conteo de Fuera de Servicio (Rojos)
+            elif 'fuera' in est_cat or 'baja' in est_cat or 'paro' in est_cat:
+                equipos_fuera += 1
+            
+            # Conteo de equipos Operativos que tienen una incidencia abierta (Naranjas / Alerta)
+            elif serial in ids_con_incidencia or codigo in ids_con_incidencia:
+                sev_row = df_ev_activos[
+                    (df_ev_activos['equipo'].astype(str).str.strip() == serial) | 
+                    (df_ev_activos['equipo'].astype(str).str.strip() == codigo)
+                ]
+                if not sev_row.empty and any(sev_row['severidad'].isin(['Alta', 'Crítica'])):
+                    alertas_criticas += 1
+                else:
+                    alertas_advertencia += 1
+
+    total_alertas_activas = alertas_criticas + alertas_advertencia
+
+    if total_equipos > 0:
+        # Penalización de salud basada estrictamente en rojos y naranjas reales
+        penalizacion = ((alertas_criticas * 20) + (alertas_advertencia * 8) + (equipos_fuera * 15)) / total_equipos
+        salud_global = max(0, min(100, int(100 - penalizacion)))
+    else:
+        salud_global = 100
 
     # ---------------------------------------------------------
     # CÁLCULO UNIFICADO DE ALERTAS (Eléctricas + Eventos Activos)
