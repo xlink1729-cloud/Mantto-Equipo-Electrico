@@ -543,16 +543,17 @@ def aplicar_filtros_tabla(df: pd.DataFrame, col_fecha: str = "fecha", key_suffix
 
 @st.cache_data(ttl=300)
 def obtener_datos():
-    """Consulta e inspecciones vinculadas por Número de Serie (no_serie)."""
+    """Consulta e inspecciones con cruce robusto por S/N o código de posición."""
     query = """
     SELECT 
         i.*,
-        c.corriente_nom as corriente_nominal_cat,
-        c.voltaje_nom as voltaje_nominal_cat,
-        c.codigo_equipo as posicion_actual,
-        c.ubicacion as area_actual
+        COALESCE(c.corriente_nom, c2.corriente_nom, 65.0) as corriente_nominal_cat,
+        COALESCE(c.voltaje_nom, c2.voltaje_nom, 440.0) as voltaje_nominal_cat,
+        COALESCE(c.codigo_equipo, c2.codigo_equipo, i.equipo) as posicion_actual,
+        COALESCE(c.ubicacion, c2.ubicacion, 'N/A') as area_actual
     FROM inspecciones_bombas i
     LEFT JOIN catalogo_equipos c ON TRIM(i.equipo) = TRIM(c.no_serie)
+    LEFT JOIN catalogo_equipos c2 ON TRIM(i.equipo) = TRIM(c2.codigo_equipo)
     ORDER BY i.fecha DESC, i.id DESC;
     """
     df = pd.read_sql_query(query, engine)
@@ -562,10 +563,8 @@ def obtener_datos():
         df['i_promedio'] = (df['i_a'] + df['i_b'] + df['i_c']) / 3.0
         df['v_promedio'] = (df['v_ab'] + df['v_bc'] + df['v_ca']) / 3.0
         
-        fla_ref = np.where(
-            (df['corriente_nominal_cat'].notnull()) & (df['corriente_nominal_cat'] > 0),
-            df['corriente_nominal_cat'], 65.0
-        )
+        # Utilizar la corriente nominal del catálogo encontrada de forma segura
+        fla_ref = df['corriente_nominal_cat'].fillna(65.0)
         df['factor_carga'] = ((df['i_promedio'] / fla_ref) * 100).round(2)
         
         i_matrix = df[['i_a', 'i_b', 'i_c']].values
