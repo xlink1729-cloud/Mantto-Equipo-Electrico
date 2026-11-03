@@ -681,7 +681,7 @@ if opcion == "Dashboard & KPIs":
         df_eventos_kpi['estatus_norm'] = df_eventos_kpi['estatus'].astype(str).str.lower().str.strip()
         eventos_activos_kpi = df_eventos_kpi[~df_eventos_kpi['estatus_norm'].isin(['resuelto', 'cerrado', 'finalizado'])]
 
-# ---------------------------------------------------------
+    # ---------------------------------------------------------
     # CÁLCULO UNIFICADO Y REAL DE KPIS Y SEMÁFORO
     # ---------------------------------------------------------
     total_equipos = len(df_equipos) if not df_equipos.empty else 0
@@ -728,47 +728,77 @@ if opcion == "Dashboard & KPIs":
         salud_global = max(0, min(100, int(100 - penalizacion)))
     else:
         salud_global = 100
-                          
-    with tab_radar:
-        st.subheader("📐 Diagrama Fasorial Trifásico")
-        df_insp = obtener_datos()
-        if df_insp.empty:
-            st.info("No hay registros de inspección.")
+
+    # --- RENDERIZADO DE TARJETAS SUPERIORES (KPIs) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    with kpi1:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Salud Global</div><div class='kpi-value'>{salud_global}%</div><span class='kpi-status status-ok'>🟢 Óptimo</span></div>", unsafe_allow_html=True)
+    with kpi2:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Activos</div><div class='kpi-value'>{total_equipos}</div><span class='kpi-status status-ok'>⚙️ Registrados</span></div>", unsafe_allow_html=True)
+    with kpi3:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Standby</div><div class='kpi-value' style='color:#0284c7;'>{equipos_standby}</div><span class='kpi-status status-info'>⏸️ Reserva</span></div>", unsafe_allow_html=True)
+    with kpi4:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Fuera de Servicio</div><div class='kpi-value' style='color:#ef4444;'>{equipos_fuera}</div><span class='kpi-status status-danger'>🔴 Inactivos</span></div>", unsafe_allow_html=True)
+    with kpi5:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Alertas Activas</div><div class='kpi-value' style='color:#eab308;'>{total_alertas_activas}</div><span class='kpi-status status-warning'>⚠️ Pendientes</span></div>", unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # --- CREACIÓN DE PESTAÑAS ---
+    tab_fleet, tab_radar, tab_scatter = st.tabs(["🎛️ Estado de Equipos (Semáforo)", "📐 Diagrama Fasorial", "📈 Factor de Carga vs. Salud"])
+
+    with tab_fleet:
+        st.subheader("Estado de Salud por Área y Posición Operativa")
+        if df_equipos.empty:
+            st.info("No hay equipos registrados en el catálogo.")
         else:
-            df_reciente = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
-            col_eq, col_tipo = st.columns([2, 1])
-            with col_eq:
-                equipo_sel = st.selectbox("Selecciona S/N Motor:", df_reciente['equipo'].unique().tolist(), key="select_fasorial")
-            with col_tipo:
-                tipo_param = st.radio("Parámetro:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
-            
-            datos_eq = df_reciente[df_reciente['equipo'] == equipo_sel].iloc[0]
-            if tipo_param == "Corriente (A)":
-                magnitudes = [float(datos_eq.get('i_a', 0)), float(datos_eq.get('i_b', 0)), float(datos_eq.get('i_c', 0))]
-                unidad = "A"
-            else:
-                magnitudes = [float(datos_eq.get('v_ab', 0)), float(datos_eq.get('v_bc', 0)), float(datos_eq.get('v_ca', 0))]
-                unidad = "V"
+            try:
+                with engine.connect() as conn:
+                    df_ev_activos = pd.read_sql(text("SELECT equipo, severidad, tipo_evento FROM registro_eventos WHERE estatus IN ('Abierto', 'En Revisión');"), conn)
+                
+                identificadores_con_eventos = set(df_ev_activos['equipo'].astype(str).str.strip().unique()) if not df_ev_activos.empty else set()
+            except Exception:
+                identificadores_con_eventos = set()
 
-            fig_vector = go.Figure()
-            for ang, mag, fase, color in zip([0, 120, 240], magnitudes, ['Fase A', 'Fase B', 'Fase C'], ['#e74c3c', '#f1c40f', '#3498db']):
-                fig_vector.add_trace(go.Scatterpolar(r=[0, mag], theta=[ang, ang], mode='lines+markers', name=f"{fase}: {mag:.1f} {unidad}", line=dict(color=color, width=4)))
+            df_equipos['ubicacion'] = df_equipos['ubicacion'].fillna("Sin Ubicación").astype(str).str.strip()
+            ubicaciones = sorted(df_equipos['ubicacion'].unique())
             
-            fig_vector.update_layout(polar=dict(radialaxis=dict(visible=True), angularaxis=dict(tickvals=[0, 120, 240], ticktext=['0° (L1)', '120° (L2)', '240° (L3)'])), height=400)
-            st.plotly_chart(fig_vector, use_container_width=True)
+            for ub in ubicaciones:
+                df_grupo = df_equipos[df_equipos['ubicacion'] == ub]
+                with st.expander(f"📍 Área: {ub} ({len(df_grupo)} activos)", expanded=True):
+                    cols_grid = st.columns(3)
+                    for idx, row in df_grupo.reset_index(drop=True).iterrows():
+                        col_idx = idx % 3
+                        serial = str(row['no_serie']).strip()
+                        codigo = str(row['codigo_equipo']).strip()
+                        estatus_cat = str(row.get('estatus', '')).lower().strip()
+                        
+                        if "fuera" in estatus_cat or "baja" in estatus_cat or "paro" in estatus_cat:
+                            st_color = "eq-border-danger"
+                            badge_txt = "🔴 Fuera de Servicio"
+                        elif "standby" in estatus_cat or "reserva" in estatus_cat:
+                            st_color = "eq-border-standby"
+                            badge_txt = "⏸️ Standby"
+                        elif serial in identificadores_con_eventos or codigo in identificadores_con_eventos:
+                            st_color = "eq-border-warning"
+                            badge_txt = "⚠️ En Alerta / Incidencia"
+                        else:
+                            st_color = "eq-border-ok"
+                            badge_txt = f"🟢 {row.get('estatus', 'Operativo')}"
 
-    with tab_scatter:
-        st.subheader("📈 Análisis de Parámetros Operativos")
-        df_insp = obtener_datos()
-        if not df_insp.empty:
-            df_graf = df_insp.sort_values('fecha').groupby('equipo').last().reset_index()
-            c_g1, c_g2 = st.columns(2)
-            with c_g1:
-                fig_fc = px.bar(df_graf, x='equipo', y='factor_carga', color='factor_carga', title="Factor de Carga (%) por S/N Motor")
-                st.plotly_chart(fig_fc, use_container_width=True)
-            with c_g2:
-                fig_db = px.bar(df_graf, x='equipo', y='desbalance_i', color='desbalance_i', title="Desbalance de Corriente (%) por S/N Motor")
-                st.plotly_chart(fig_db, use_container_width=True)
+                        with cols_grid[col_idx]:
+                            st.markdown(f"""
+                                <div class='equipment-card {st_color}'>
+                                    <strong style='font-size: 1.1rem; color: #1e293b;'>{codigo}</strong> 
+                                    <span style='font-size: 0.8rem; color: #64748b;'>(S/N: {serial})</span><br>
+                                    <span style='font-size: 0.85rem; color: #475569;'>{row.get('marca_modelo', 'N/A')} | {row.get('potencia_hp', 0)} HP</span><br>
+                                    <div style='margin-top: 8px;'>
+                                        <span class='kpi-status' style='background: #f1f5f9; color: #334155;'>FLA: {row.get('corriente_nom', 0)} A</span>
+                                        <span style='float: right; font-size:0.8rem; font-weight:bold;'>{badge_txt}</span>
+                                    </div>
+                                </div>
+                            """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 2. CATÁLOGO DE EQUIPOS
