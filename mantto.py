@@ -335,6 +335,23 @@ def inicializar_bd():
 
     # Migraciones ligeras para bases creadas con versiones anteriores
     columnas_extra = [
+        # Tablas creadas con versiones viejas pueden no tener 'id'. SERIAL lo rellena en las filas existentes.
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS id SERIAL;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS ubicacion VARCHAR(150);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS marca_modelo VARCHAR(100);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS potencia_hp FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS voltaje_nom FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS corriente_nom FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS rpm INT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS factor_servicio FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS breaker_amp FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS overload_setting FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS calibre_cable VARCHAR(50);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS material_conductor VARCHAR(50);",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS conductores_por_fase INT DEFAULT 1;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS distancia_m FLOAT;",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS estatus VARCHAR(30) DEFAULT 'Operativo';",
+        "ALTER TABLE catalogo_equipos ADD COLUMN IF NOT EXISTS observaciones TEXT;",
         "ALTER TABLE inspecciones_bombas ADD COLUMN IF NOT EXISTS v_n_tierra FLOAT DEFAULT 0.0;",
         "ALTER TABLE inspecciones_bombas ADD COLUMN IF NOT EXISTS factor_carga FLOAT DEFAULT 0.0;",
         "ALTER TABLE usuarios ALTER COLUMN password_hash TYPE VARCHAR(255);",
@@ -356,6 +373,18 @@ def inicializar_bd():
         except Exception as err:
             logger.warning(f"Migración omitida ({col_query[:60]}...): {err}")
 
+    # Verificación: sin 'id' en el catálogo no se puede editar por llave primaria
+    with engine.connect() as conn:
+        tiene_id = conn.execute(text(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_name = 'catalogo_equipos' AND column_name = 'id';"
+        )).scalar()
+    if not tiene_id:
+        raise RuntimeError(
+            "La tabla catalogo_equipos no tiene la columna 'id' y no se pudo crear automáticamente. "
+            "Ejecuta en Neon: ALTER TABLE catalogo_equipos ADD COLUMN id SERIAL;"
+        )
+
     # Índices para consultas por equipo / fecha
     indices = [
         "CREATE INDEX IF NOT EXISTS idx_insp_equipo_fecha ON inspecciones_bombas (equipo, fecha);",
@@ -363,6 +392,11 @@ def inicializar_bd():
         "CREATE INDEX IF NOT EXISTS idx_termo_equipo_fecha ON inspecciones_termograficas (equipo_id, fecha_inspeccion);",
         "CREATE INDEX IF NOT EXISTS idx_aisla_equipo_fecha ON pruebas_aislamiento (equipo, fecha_hora);",
         "CREATE INDEX IF NOT EXISTS idx_mov_serie_fecha ON movimientos_equipo (no_serie, fecha_hora);",
+        # 'id' como identificador único de fila (la llave primaria vieja es codigo_equipo)
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_catalogo_id ON catalogo_equipos (id);",
+        # El S/N no puede repetirse entre motores (los vacíos se permiten mientras se capturan)
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_catalogo_no_serie ON catalogo_equipos (UPPER(TRIM(no_serie))) "
+        "WHERE no_serie IS NOT NULL AND TRIM(no_serie) <> '';",
     ]
     for idx_query in indices:
         try:
@@ -668,17 +702,17 @@ def diagnostico_aislamiento(r40, r_1min, pi_val):
 def clasificar_equipo(row, ids_criticos: set, ids_con_evento: set) -> str:
     """Semáforo de un equipo. El estatus del catálogo es manual; las alertas se derivan de los eventos abiertos."""
     est_cat = str(row.get("estatus", "") or "").lower().strip()
-    serial = str(row.get("no_serie", "") or "").strip()
-    codigo = str(row.get("codigo_equipo", "") or "").strip()
+    serial = _s(row.get("no_serie")).strip()
+    codigo = _s(row.get("codigo_equipo")).strip()
 
     if "fuera" in est_cat or "baja" in est_cat or "paro" in est_cat:
         return "fuera"
     if "standby" in est_cat or "reserva" in est_cat:
         return "standby"
     # Los eventos pertenecen al motor (S/N), nunca a la posición donde esté instalado
-    if serial in ids_criticos:
+    if serial and serial in ids_criticos:
         return "critico"
-    if serial in ids_con_evento:
+    if serial and serial in ids_con_evento:
         return "alerta"
     if "mantenimiento" in est_cat:
         return "mantenimiento"
@@ -752,7 +786,11 @@ def obtener_eventos_activos():
 @st.cache_data(ttl=300)
 def obtener_equipos():
     query = "SELECT * FROM catalogo_equipos ORDER BY codigo_equipo ASC;"
-    return pd.read_sql_query(query, engine)
+    df = pd.read_sql_query(query, engine)
+    if not df.empty:
+        # Un motor sin S/N queda con texto vacío (nunca "None"/"nan")
+        df["no_serie"] = df["no_serie"].fillna("").astype(str).str.strip()
+    return df
 
 
 def obtener_pruebas_aislamiento():
@@ -849,7 +887,10 @@ def equipos_seleccionables(df_cat: pd.DataFrame) -> pd.DataFrame:
     """Equipos que se pueden medir/inspeccionar (todos menos los dados de baja)."""
     if df_cat.empty or "estatus" not in df_cat.columns:
         return df_cat.copy()
-    return df_cat[~df_cat["estatus"].fillna("").str.lower().str.contains("baja")].copy()
+    df_ok = df_cat[~df_cat["estatus"].fillna("").str.lower().str.contains("baja")]
+    # La trazabilidad es por S/N: un motor sin S/N no se puede inspeccionar hasta asignárselo
+    df_ok = df_ok[df_ok["no_serie"].fillna("").astype(str).str.strip() != ""]
+    return df_ok.copy()
 
 
 def selector_equipo_por_serie(df_equipos_cat, key_widget="sel_eq_general"):
@@ -1309,6 +1350,14 @@ elif opcion == "Catálogo de Equipos":
                         mime="application/pdf", use_container_width=True
                     )
 
+            sin_serie = df_eq[df_eq["no_serie"] == ""]["codigo_equipo"].astype(str).tolist()
+            if sin_serie:
+                st.warning(
+                    f"{len(sin_serie)} motor(es) sin S/N: {', '.join(sin_serie)}. "
+                    "No se pueden inspeccionar ni llevar historial hasta asignarles su S/N "
+                    "(pestaña «Modificar / Reubicar Activo»)."
+                )
+
             df_eq["ubicacion"] = df_eq["ubicacion"].fillna("Sin Ubicación").astype(str).str.strip()
             for ub in sorted(df_eq["ubicacion"].unique()):
                 df_grupo = df_eq[df_eq["ubicacion"] == ub]
@@ -1380,11 +1429,19 @@ elif opcion == "Catálogo de Equipos":
                     try:
                         with engine.begin() as conn:
                             existe = conn.execute(
-                                text("SELECT COUNT(*) FROM catalogo_equipos WHERE TRIM(no_serie) = TRIM(:ns);"),
+                                text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(no_serie)) = UPPER(TRIM(:ns));"),
                                 {"ns": no_serie.strip()}
                             ).scalar()
                             if existe:
                                 st.error(f"❌ Ya existe un equipo con S/N {no_serie.strip()}.")
+                                st.stop()
+                            pos_existe = conn.execute(
+                                text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c));"),
+                                {"c": cod_eq.strip()}
+                            ).scalar()
+                            if pos_existe:
+                                st.error(f"❌ La posición «{cod_eq.strip()}» ya la tiene otro equipo. "
+                                         "Si es un cambio de motor, usa la pestaña «Reemplazar Motor».")
                                 st.stop()
                             conn.execute(q_ins_eq, {
                                 "cod": cod_eq.strip(), "ub": ubic.strip(), "mm": marca_m.strip(), "ns": no_serie.strip(),
@@ -1408,20 +1465,34 @@ elif opcion == "Catálogo de Equipos":
         else:
             st.subheader("🛠️ Gestor de Activos y Reubicaciones (Por Número de Serie)")
 
-            df_eq["label_gestor"] = "S/N: " + df_eq["no_serie"].astype(str).str.strip() + " | Posición Actual: " + df_eq["codigo_equipo"].astype(str).str.strip()
+            sn_etiqueta = df_eq["no_serie"].replace("", "⚠️ SIN S/N")
+            df_eq["label_gestor"] = "S/N: " + sn_etiqueta + " | Posición Actual: " + df_eq["codigo_equipo"].astype(str).str.strip()
             label_sel = st.selectbox("Selecciona el Activo:", df_eq["label_gestor"].tolist(), key="sel_gestor_sn")
 
             eq_reg = df_eq[df_eq["label_gestor"] == label_sel].iloc[0]
-            target_sn = str(eq_reg["no_serie"]).strip()
+            target_sn = _s(eq_reg["no_serie"]).strip()
             target_id = int(eq_reg["id"])
+            sin_sn = target_sn == ""
+            pos_prev = _s(eq_reg.get("codigo_equipo")).strip()
 
             c_edit, c_del = st.columns(2)
 
             with c_edit:
                 with st.expander("✏️ Editar Ficha o Cambiar de Posición (Reubicar)", expanded=True):
                     with st.form(f"form_edit_sn_{target_id}"):
-                        st.text_input("Número de Serie (S/N) — identidad del motor", value=target_sn, disabled=True)
-                        st.caption("El S/N identifica al motor y su historial le pertenece: no se puede editar ni se mueve a otro motor. Para reubicarlo cambia solo la Posición Operativa.")
+                        if sin_sn:
+                            nuevo_sn_asignado = st.text_input("Número de Serie (S/N) del motor", value="",
+                                                              placeholder="Captura el S/N de la placa para activar su trazabilidad")
+                            ligar_historial = st.checkbox(
+                                f"Ligar a este motor el historial antiguo capturado con el nombre «{pos_prev}»",
+                                value=True,
+                                help="Las lecturas, eventos, termografías y pruebas guardadas con el nombre de la posición pasan a este S/N."
+                            )
+                            st.caption("Este motor no tiene S/N. Asígnaselo una sola vez: después ya no se puede cambiar.")
+                        else:
+                            nuevo_sn_asignado, ligar_historial = "", False
+                            st.text_input("Número de Serie (S/N) — identidad del motor", value=target_sn, disabled=True)
+                            st.caption("El S/N identifica al motor y su historial le pertenece: no se puede editar ni se mueve a otro motor. Para reubicarlo cambia solo la Posición Operativa.")
 
                         edit_pos = st.text_input("Posición Operativa / Código (ej. M-29)", value=_s(eq_reg.get("codigo_equipo")))
                         edit_ubic = st.text_input("Ubicación en Planta", value=_s(eq_reg.get("ubicacion")))
@@ -1458,11 +1529,41 @@ elif opcion == "Catálogo de Equipos":
                             st.rerun()
 
                         if btn_upd:
+                            error_edit = None
+                            sn_final = target_sn
+                            asignando_sn = sin_sn and nuevo_sn_asignado.strip() != ""
+                            if asignando_sn:
+                                sn_final = nuevo_sn_asignado.strip()
+
                             if not edit_pos.strip():
-                                st.error("La Posición Operativa es obligatoria.")
+                                error_edit = "La Posición Operativa es obligatoria."
                             else:
-                                q_upd_eq = text("""
+                                try:
+                                    with engine.connect() as conn:
+                                        if edit_pos.strip() != pos_prev:
+                                            pos_ocupada = conn.execute(
+                                                text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c)) AND id <> :id;"),
+                                                {"c": edit_pos.strip(), "id": target_id}
+                                            ).scalar()
+                                            if pos_ocupada:
+                                                error_edit = (f"La posición «{edit_pos.strip()}» ya la tiene otro equipo. "
+                                                              "Si es un cambio de motor, usa la pestaña «Reemplazar Motor».")
+                                        if not error_edit and asignando_sn:
+                                            sn_dup = conn.execute(
+                                                text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(no_serie)) = UPPER(TRIM(:n)) AND id <> :id;"),
+                                                {"n": sn_final, "id": target_id}
+                                            ).scalar()
+                                            if sn_dup:
+                                                error_edit = f"Ya existe otro motor con el S/N {sn_final}."
+                                except Exception as e:
+                                    error_edit = f"No se pudo validar los datos: {e}"
+
+                            if error_edit:
+                                st.error(error_edit)
+                            else:
+                                q_upd_eq = text(f"""
                                 UPDATE catalogo_equipos SET
+                                    {"no_serie = :nuevo_sn," if asignando_sn else ""}
                                     codigo_equipo = :cod, ubicacion = :ub,
                                     marca_modelo = :mm, frame = :fr, balero_superior = :bsup, balero_inferior = :binf,
                                     potencia_hp = :php, voltaje_nom = :vnom, corriente_nom = :inom, rpm = :rpm,
@@ -1471,24 +1572,43 @@ elif opcion == "Catálogo de Equipos":
                                 WHERE id = :id;
                                 """)
                                 try:
+                                    params_upd = {
+                                        "cod": edit_pos.strip(), "ub": edit_ubic.strip(),
+                                        "mm": edit_marca.strip(), "fr": edit_frame.strip(),
+                                        "bsup": edit_bsup.strip(), "binf": edit_binf.strip(),
+                                        "php": edit_pot, "vnom": edit_vnom, "inom": edit_inom, "rpm": edit_rpm,
+                                        "fs": edit_fs if edit_fs > 0 else None, "brk": edit_brk, "ovl": edit_ovl,
+                                        "est": edit_estatus, "obs": edit_obs, "id": target_id
+                                    }
+                                    if asignando_sn:
+                                        params_upd["nuevo_sn"] = sn_final
                                     with engine.begin() as conn:
-                                        conn.execute(q_upd_eq, {
-                                            "cod": edit_pos.strip(), "ub": edit_ubic.strip(),
-                                            "mm": edit_marca.strip(), "fr": edit_frame.strip(),
-                                            "bsup": edit_bsup.strip(), "binf": edit_binf.strip(),
-                                            "php": edit_pot, "vnom": edit_vnom, "inom": edit_inom, "rpm": edit_rpm,
-                                            "fs": edit_fs if edit_fs > 0 else None, "brk": edit_brk, "ovl": edit_ovl,
-                                            "est": edit_estatus, "obs": edit_obs, "id": target_id
-                                        })
-                                        pos_prev = _s(eq_reg.get("codigo_equipo")).strip()
+                                        conn.execute(q_upd_eq, params_upd)
                                         ubic_prev = _s(eq_reg.get("ubicacion")).strip()
-                                        if edit_pos.strip() != pos_prev or edit_ubic.strip() != ubic_prev:
+
+                                        # Motor que recibe su primer S/N: el historial antiguo (capturado con el nombre de la posición) se liga a él
+                                        if asignando_sn and ligar_historial:
+                                            for tabla, col in [
+                                                ("inspecciones_bombas", "equipo"),
+                                                ("registro_eventos", "equipo"),
+                                                ("inspecciones_termograficas", "equipo_id"),
+                                                ("pruebas_aislamiento", "equipo"),
+                                            ]:
+                                                conn.execute(
+                                                    text(f"UPDATE {tabla} SET {col} = :sn WHERE TRIM({col}) = TRIM(:pos);"),
+                                                    {"sn": sn_final, "pos": pos_prev}
+                                                )
+                                        if asignando_sn:
+                                            registrar_movimiento(conn, sn_final, "Asignación de S/N", pos_prev, edit_pos.strip(),
+                                                                 ubic_prev, edit_ubic.strip(), "Primer registro con S/N")
+                                        elif sn_final and (edit_pos.strip() != pos_prev or edit_ubic.strip() != ubic_prev):
                                             registrar_movimiento(
-                                                conn, target_sn, "Reubicación", pos_prev, edit_pos.strip(),
+                                                conn, sn_final, "Reubicación", pos_prev, edit_pos.strip(),
                                                 ubic_prev, edit_ubic.strip(), motivo_mov.strip()
                                             )
                                     limpiar_cache()
-                                    flash(f"✅ Motor S/N **{target_sn}** actualizado (posición: **{edit_pos.strip()}**).")
+                                    etiqueta_sn = f"S/N **{sn_final}**" if sn_final else f"**{edit_pos.strip()}** (aún sin S/N)"
+                                    flash(f"✅ Motor {etiqueta_sn} actualizado (posición: **{edit_pos.strip()}**).")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Error al actualizar en BD: {e}")
@@ -1507,12 +1627,13 @@ elif opcion == "Catálogo de Equipos":
                                     text("UPDATE catalogo_equipos SET estatus = 'Baja', observaciones = TRIM(COALESCE(observaciones, '') || E'\\n' || :nota) WHERE id = :id;"),
                                     {"nota": nota, "id": target_id}
                                 )
-                                registrar_movimiento(
-                                    conn, target_sn, "Baja", _s(eq_reg.get("codigo_equipo")), None,
-                                    _s(eq_reg.get("ubicacion")), None, "Dado de baja"
-                                )
+                                if target_sn:
+                                    registrar_movimiento(
+                                        conn, target_sn, "Baja", _s(eq_reg.get("codigo_equipo")), None,
+                                        _s(eq_reg.get("ubicacion")), None, "Dado de baja"
+                                    )
                             limpiar_cache()
-                            flash(f"📦 Motor S/N **{target_sn}** dado de baja.")
+                            flash(f"📦 Motor {('S/N **' + target_sn + '**') if target_sn else '**' + pos_prev + '** (sin S/N)'} dado de baja.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al dar de baja: {e}")
@@ -1619,6 +1740,14 @@ elif opcion == "Catálogo de Equipos":
                                 ).scalar()
                             if ya_existe:
                                 error_rep = f"Ya existe un motor con S/N {nuevo_sn_rep}. Si ese motor ya está en el catálogo, reubícalo en lugar de darlo de alta."
+                            else:
+                                with engine.connect() as conn:
+                                    nombre_ocupado = conn.execute(
+                                        text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c)) AND id <> :id;"),
+                                        {"c": nombre_viejo.strip(), "id": id_viejo}
+                                    ).scalar()
+                                if nombre_ocupado:
+                                    error_rep = f"El nombre «{nombre_viejo.strip()}» ya lo usa otro equipo. Elige otro nombre para el motor retirado."
                         except Exception as e:
                             error_rep = f"No se pudo verificar el S/N: {e}"
 
@@ -2166,7 +2295,7 @@ elif opcion == "Registro de Eventos":
                         edit_h_ev = st.time_input("Hora", value=fh_val.time())
 
                         if not df_cat_ges.empty:
-                            lista_sn_opt = df_cat_ges["no_serie"].astype(str).str.strip().tolist()
+                            lista_sn_opt = [s for s in df_cat_ges["no_serie"].astype(str).str.strip().tolist() if s]
                             current_sn = str(evt_registro["equipo"]).strip()
                             idx_sn = lista_sn_opt.index(current_sn) if current_sn in lista_sn_opt else 0
                             edit_eq_ev = st.selectbox("S/N Motor Correcto", lista_sn_opt, index=idx_sn)
@@ -2264,7 +2393,7 @@ elif opcion == "Historial de Mediciones":
             with st.expander("✏️ Editar Registro Seleccionado"):
                 with st.form(f"form_editar_{id_seleccionado}"):
                     edit_fecha = st.date_input("Fecha", value=pd.to_datetime(registro["fecha"]).date())
-                    sns_cat = df_cat_hist["no_serie"].astype(str).str.strip().tolist() if not df_cat_hist.empty else []
+                    sns_cat = [s for s in df_cat_hist["no_serie"].astype(str).str.strip().tolist() if s] if not df_cat_hist.empty else []
                     sn_actual = str(registro["equipo"]).strip()
                     if sn_actual not in sns_cat:
                         sns_cat = [sn_actual] + sns_cat
