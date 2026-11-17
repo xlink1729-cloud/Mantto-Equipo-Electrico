@@ -1519,7 +1519,9 @@ elif opcion == "Catálogo de Equipos":
                         edit_ovl = c_eq7.number_input("Ajuste Protección (A)", value=_f(eq_reg.get("overload_setting")))
 
                         edit_obs = st.text_area("Observaciones Adicionales / Historial de Movimiento", value=_s(eq_reg.get("observaciones")))
-                        motivo_mov = st.text_input("Motivo de la reubicación (si cambias posición o ubicación)")
+                        motivo_mov = st.text_input("Motivo de la reubicación (si cambias posición o ubicación)",
+                                                   placeholder="Ej. Reparado: limpieza interna y cambio de baleros; montado en M-29")
+                        fecha_mov = st.date_input("Fecha real del movimiento / montaje", value=hoy())
 
                         c_btn1, c_btn2 = st.columns(2)
                         btn_upd = c_btn1.form_submit_button("💾 Guardar Cambios", use_container_width=True)
@@ -1598,13 +1600,14 @@ elif opcion == "Catálogo de Equipos":
                                                     text(f"UPDATE {tabla} SET {col} = :sn WHERE TRIM({col}) = TRIM(:pos);"),
                                                     {"sn": sn_final, "pos": pos_prev}
                                                 )
+                                        fh_mov = datetime.combine(fecha_mov, ahora().time())
                                         if asignando_sn:
                                             registrar_movimiento(conn, sn_final, "Asignación de S/N", pos_prev, edit_pos.strip(),
-                                                                 ubic_prev, edit_ubic.strip(), "Primer registro con S/N")
+                                                                 ubic_prev, edit_ubic.strip(), "Primer registro con S/N", fh_mov)
                                         elif sn_final and (edit_pos.strip() != pos_prev or edit_ubic.strip() != ubic_prev):
                                             registrar_movimiento(
                                                 conn, sn_final, "Reubicación", pos_prev, edit_pos.strip(),
-                                                ubic_prev, edit_ubic.strip(), motivo_mov.strip()
+                                                ubic_prev, edit_ubic.strip(), motivo_mov.strip(), fh_mov
                                             )
                                     limpiar_cache()
                                     etiqueta_sn = f"S/N **{sn_final}**" if sn_final else f"**{edit_pos.strip()}** (aún sin S/N)"
