@@ -1687,147 +1687,284 @@ elif opcion == "Catálogo de Equipos":
             id_viejo = int(viejo["id"])
             ubic_vieja = _s(viejo.get("ubicacion")).strip()
 
-            with st.form(form_key("form_reemplazo") + f"_{id_viejo}", clear_on_submit=False):
-                st.markdown(f"##### 2. Motor nuevo que toma el nombre **{pos_vieja}**")
-                c_r1, c_r2 = st.columns(2)
-                with c_r1:
-                    nuevo_sn_rep = st.text_input("S/N del motor nuevo *", placeholder="Número de serie de la placa")
-                    fecha_rep = st.date_input("Fecha del reemplazo", value=hoy())
-                    marca_rep = st.text_input("Marca / Modelo", value=_s(viejo.get("marca_modelo")))
-                    frame_rep = st.text_input("Armazón / Frame", value=_s(viejo.get("frame")))
-                    bsup_rep = st.text_input("Balero Superior", value=_s(viejo.get("balero_superior")))
-                    binf_rep = st.text_input("Balero Inferior", value=_s(viejo.get("balero_inferior")))
-                    estatus_nuevo = st.selectbox("Estatus del motor nuevo", ["Operativo", "Standby", "En Mantenimiento"])
-                with c_r2:
-                    hp_rep = st.number_input("Potencia (HP)", value=_f(viejo.get("potencia_hp")), step=5.0)
-                    vnom_rep = st.number_input("Voltaje Nominal (V)", value=_f(viejo.get("voltaje_nom")) or 440.0, step=10.0)
-                    fla_rep = st.number_input("Corriente Nominal / FLA (A) *", value=None, step=1.0,
-                                              help="Dato de la placa del motor nuevo.")
-                    rpm_rep = st.number_input("RPM", value=int(_f(viejo.get("rpm")) or 1750), step=50)
-                    fs_rep = st.number_input("Factor de Servicio (F.S.)", value=_f(viejo.get("factor_servicio")) or 1.15, step=0.05)
+            modo_rep = st.radio(
+                "El motor que entra a esta posición es:",
+                ["Motor nuevo (alta en el catálogo)", "Motor ya registrado (p. ej. reparado y reinstalado)"],
+                horizontal=True, key="modo_reemplazo"
+            )
+            es_nuevo = modo_rep.startswith("Motor nuevo")
 
-                st.caption("Protecciones y alimentación (ITM, ajuste, cable, distancia) pertenecen a la posición: se conservan del motor retirado.")
+            if es_nuevo:
+                with st.form(form_key("form_reemplazo") + f"_{id_viejo}", clear_on_submit=False):
+                    st.markdown(f"##### 2. Motor nuevo que toma el nombre **{pos_vieja}**")
+                    c_r1, c_r2 = st.columns(2)
+                    with c_r1:
+                        nuevo_sn_rep = st.text_input("S/N del motor nuevo *", placeholder="Número de serie de la placa")
+                        fecha_rep = st.date_input("Fecha del reemplazo", value=hoy())
+                        marca_rep = st.text_input("Marca / Modelo", value=_s(viejo.get("marca_modelo")))
+                        frame_rep = st.text_input("Armazón / Frame", value=_s(viejo.get("frame")))
+                        bsup_rep = st.text_input("Balero Superior", value=_s(viejo.get("balero_superior")))
+                        binf_rep = st.text_input("Balero Inferior", value=_s(viejo.get("balero_inferior")))
+                        estatus_nuevo = st.selectbox("Estatus del motor nuevo", ["Operativo", "Standby", "En Mantenimiento"])
+                    with c_r2:
+                        hp_rep = st.number_input("Potencia (HP)", value=_f(viejo.get("potencia_hp")), step=5.0)
+                        vnom_rep = st.number_input("Voltaje Nominal (V)", value=_f(viejo.get("voltaje_nom")) or 440.0, step=10.0)
+                        fla_rep = st.number_input("Corriente Nominal / FLA (A) *", value=None, step=1.0,
+                                                  help="Dato de la placa del motor nuevo.")
+                        rpm_rep = st.number_input("RPM", value=int(_f(viejo.get("rpm")) or 1750), step=50)
+                        fs_rep = st.number_input("Factor de Servicio (F.S.)", value=_f(viejo.get("factor_servicio")) or 1.15, step=0.05)
 
-                st.markdown("##### 3. Destino del motor retirado")
-                c_d1, c_d2, c_d3 = st.columns(3)
-                destino_viejo = c_d1.selectbox("Estatus del motor retirado", ["Baja", "En Mantenimiento", "Standby"],
-                                               help="«Baja»: desechado. «En Mantenimiento»: va a reparación. «Standby»: queda de reserva.")
-                nombre_viejo = c_d2.text_input("Nuevo nombre del motor retirado", value=f"RETIRADO {pos_vieja}")
-                ubic_viejo_nueva = c_d3.text_input("Ubicación del motor retirado", value="Taller / Almacén")
+                    st.caption("Protecciones y alimentación (ITM, ajuste, cable, distancia) pertenecen a la posición: se conservan del motor retirado.")
 
-                motivo_rep = st.text_area("Motivo del reemplazo / falla *", placeholder="Ej. Devanado quemado, balero colapsado...")
-                cerrar_eventos = st.checkbox("Cerrar como «Resuelto» los eventos abiertos del motor retirado")
+                    st.markdown("##### 3. Destino del motor retirado")
+                    c_d1, c_d2, c_d3 = st.columns(3)
+                    destino_viejo = c_d1.selectbox("Estatus del motor retirado", ["Baja", "En Mantenimiento", "Standby"],
+                                                   help="«Baja»: desechado. «En Mantenimiento»: va a reparación. «Standby»: queda de reserva.")
+                    nombre_viejo = c_d2.text_input("Nuevo nombre del motor retirado", value=f"RETIRADO {pos_vieja}")
+                    ubic_viejo_nueva = c_d3.text_input("Ubicación del motor retirado", value="Taller / Almacén")
 
-                btn_reemplazar = st.form_submit_button("🔄 Confirmar Reemplazo", use_container_width=True)
+                    motivo_rep = st.text_area("Motivo del reemplazo / falla *", placeholder="Ej. Devanado quemado, balero colapsado...")
+                    cerrar_eventos = st.checkbox("Cerrar como «Resuelto» los eventos abiertos del motor retirado")
 
-                if btn_reemplazar:
-                    nuevo_sn_rep = nuevo_sn_rep.strip()
-                    error_rep = None
-                    if not nuevo_sn_rep:
-                        error_rep = "El S/N del motor nuevo es obligatorio."
-                    elif nuevo_sn_rep.upper() == sn_viejo.upper():
-                        error_rep = "El motor nuevo no puede tener el mismo S/N que el retirado."
-                    elif fla_rep is None or fla_rep <= 0:
-                        error_rep = "La Corriente Nominal (FLA) del motor nuevo es obligatoria."
-                    elif not motivo_rep.strip():
-                        error_rep = "Escribe el motivo del reemplazo."
-                    elif not nombre_viejo.strip() or nombre_viejo.strip().upper() == pos_vieja.upper():
-                        error_rep = "El motor retirado debe quedar con un nombre distinto al de la posición."
+                    btn_reemplazar = st.form_submit_button("🔄 Confirmar Reemplazo", use_container_width=True)
 
-                    if not error_rep:
-                        try:
-                            with engine.connect() as conn:
-                                ya_existe = conn.execute(
-                                    text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(no_serie)) = UPPER(TRIM(:n));"),
-                                    {"n": nuevo_sn_rep}
-                                ).scalar()
-                            if ya_existe:
-                                error_rep = f"Ya existe un motor con S/N {nuevo_sn_rep}. Si ese motor ya está en el catálogo, reubícalo en lugar de darlo de alta."
-                            else:
+                    if btn_reemplazar:
+                        nuevo_sn_rep = nuevo_sn_rep.strip()
+                        error_rep = None
+                        if not nuevo_sn_rep:
+                            error_rep = "El S/N del motor nuevo es obligatorio."
+                        elif nuevo_sn_rep.upper() == sn_viejo.upper():
+                            error_rep = "El motor nuevo no puede tener el mismo S/N que el retirado."
+                        elif fla_rep is None or fla_rep <= 0:
+                            error_rep = "La Corriente Nominal (FLA) del motor nuevo es obligatoria."
+                        elif not motivo_rep.strip():
+                            error_rep = "Escribe el motivo del reemplazo."
+                        elif not nombre_viejo.strip() or nombre_viejo.strip().upper() == pos_vieja.upper():
+                            error_rep = "El motor retirado debe quedar con un nombre distinto al de la posición."
+
+                        if not error_rep:
+                            try:
                                 with engine.connect() as conn:
-                                    nombre_ocupado = conn.execute(
-                                        text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c)) AND id <> :id;"),
-                                        {"c": nombre_viejo.strip(), "id": id_viejo}
+                                    ya_existe = conn.execute(
+                                        text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(no_serie)) = UPPER(TRIM(:n));"),
+                                        {"n": nuevo_sn_rep}
                                     ).scalar()
-                                if nombre_ocupado:
-                                    error_rep = f"El nombre «{nombre_viejo.strip()}» ya lo usa otro equipo. Elige otro nombre para el motor retirado."
-                        except Exception as e:
-                            error_rep = f"No se pudo verificar el S/N: {e}"
+                                if ya_existe:
+                                    error_rep = (f"Ya existe un motor con S/N {nuevo_sn_rep}. Si ese motor ya está en el catálogo, "
+                                                 "elige arriba la opción «Motor ya registrado» en lugar de darlo de alta.")
+                                else:
+                                    with engine.connect() as conn:
+                                        nombre_ocupado = conn.execute(
+                                            text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c)) AND id <> :id;"),
+                                            {"c": nombre_viejo.strip(), "id": id_viejo}
+                                        ).scalar()
+                                    if nombre_ocupado:
+                                        error_rep = f"El nombre «{nombre_viejo.strip()}» ya lo usa otro equipo. Elige otro nombre para el motor retirado."
+                            except Exception as e:
+                                error_rep = f"No se pudo verificar el S/N: {e}"
 
-                    if error_rep:
-                        st.error(error_rep)
-                    else:
-                        fh_rep = datetime.combine(fecha_rep, ahora().time())
-                        nota_fecha = fecha_rep.strftime("%d/%m/%Y")
-                        usuario_rep = st.session_state.get("usuario_actual", "Sistema")
-                        try:
-                            with engine.begin() as conn:
-                                # 1) Motor retirado: conserva su S/N e historial, cambia de nombre/destino
-                                conn.execute(
-                                    text("""
-                                        UPDATE catalogo_equipos SET
-                                            codigo_equipo = :nom, ubicacion = :ub, estatus = :est,
-                                            observaciones = TRIM(COALESCE(observaciones, '') || E'\\n' || :nota)
-                                        WHERE id = :id;
-                                    """),
-                                    {
-                                        "nom": nombre_viejo.strip(), "ub": ubic_viejo_nueva.strip(), "est": destino_viejo,
-                                        "nota": f"[{nota_fecha} - {usuario_rep}] Retirado de {pos_vieja} (reemplazado por S/N {nuevo_sn_rep}). Motivo: {motivo_rep.strip()}",
-                                        "id": id_viejo
-                                    }
-                                )
-                                # 2) Motor nuevo: toma el nombre de la posición y empieza historial limpio
-                                conn.execute(
-                                    text("""
-                                        INSERT INTO catalogo_equipos (
-                                            codigo_equipo, ubicacion, marca_modelo, no_serie, frame,
-                                            balero_superior, balero_inferior, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio,
-                                            estatus, breaker_amp, overload_setting, calibre_cable, material_conductor,
-                                            conductores_por_fase, distancia_m, observaciones
-                                        ) VALUES (
-                                            :cod, :ub, :mm, :ns, :fr, :bsup, :binf, :php, :vnom, :inom, :rpm, :fs,
-                                            :est, :brk, :ovl, :cal, :mat, :hilos, :dist, :obs
-                                        );
-                                    """),
-                                    {
-                                        "cod": pos_vieja, "ub": ubic_vieja, "mm": marca_rep.strip(), "ns": nuevo_sn_rep,
-                                        "fr": frame_rep.strip(), "bsup": bsup_rep.strip(), "binf": binf_rep.strip(),
-                                        "php": hp_rep, "vnom": vnom_rep, "inom": fla_rep, "rpm": rpm_rep, "fs": fs_rep,
-                                        "est": estatus_nuevo,
-                                        "brk": _f(viejo.get("breaker_amp"), None), "ovl": _f(viejo.get("overload_setting"), None),
-                                        "cal": _s(viejo.get("calibre_cable")), "mat": _s(viejo.get("material_conductor")),
-                                        "hilos": int(_f(viejo.get("conductores_por_fase"), 1) or 1),
-                                        "dist": _f(viejo.get("distancia_m"), None),
-                                        "obs": f"[{nota_fecha} - {usuario_rep}] Instalado en {pos_vieja} en reemplazo del S/N {sn_viejo}."
-                                    }
-                                )
-                                # 3) Trazabilidad: un movimiento por motor
-                                registrar_movimiento(
-                                    conn, sn_viejo, "Retiro (reemplazo)", pos_vieja, nombre_viejo.strip(),
-                                    ubic_vieja, ubic_viejo_nueva.strip(),
-                                    f"Reemplazado por S/N {nuevo_sn_rep}. {motivo_rep.strip()}", fh_rep
-                                )
-                                registrar_movimiento(
-                                    conn, nuevo_sn_rep, "Instalación (reemplazo)", None, pos_vieja,
-                                    None, ubic_vieja, f"Reemplaza al S/N {sn_viejo}. {motivo_rep.strip()}", fh_rep
-                                )
-                                # 4) Opcional: cerrar eventos abiertos del motor retirado
-                                if cerrar_eventos:
+                        if error_rep:
+                            st.error(error_rep)
+                        else:
+                            fh_rep = datetime.combine(fecha_rep, ahora().time())
+                            nota_fecha = fecha_rep.strftime("%d/%m/%Y")
+                            usuario_rep = st.session_state.get("usuario_actual", "Sistema")
+                            try:
+                                with engine.begin() as conn:
+                                    # 1) Motor retirado: conserva su S/N e historial, cambia de nombre/destino
                                     conn.execute(
                                         text("""
-                                            UPDATE registro_eventos SET estatus = 'Resuelto',
-                                                accion_tomada = TRIM(COALESCE(accion_tomada, '') || E'\\n' || :nota)
-                                            WHERE TRIM(equipo) = TRIM(:sn) AND estatus IN ('Abierto', 'En Revisión');
+                                            UPDATE catalogo_equipos SET
+                                                codigo_equipo = :nom, ubicacion = :ub, estatus = :est,
+                                                observaciones = TRIM(COALESCE(observaciones, '') || E'\\n' || :nota)
+                                            WHERE id = :id;
                                         """),
-                                        {"sn": sn_viejo, "nota": f"[{nota_fecha} - {usuario_rep}]: Cerrado por reemplazo del motor (nuevo S/N {nuevo_sn_rep})."}
+                                        {
+                                            "nom": nombre_viejo.strip(), "ub": ubic_viejo_nueva.strip(), "est": destino_viejo,
+                                            "nota": f"[{nota_fecha} - {usuario_rep}] Retirado de {pos_vieja} (reemplazado por S/N {nuevo_sn_rep}). Motivo: {motivo_rep.strip()}",
+                                            "id": id_viejo
+                                        }
                                     )
-                            limpiar_cache()
-                            reset_form("form_reemplazo")
-                            flash(f"✅ Reemplazo registrado: S/N **{nuevo_sn_rep}** ahora es **{pos_vieja}**. "
-                                  f"El S/N **{sn_viejo}** conserva su historial como «{nombre_viejo.strip()}».")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al registrar el reemplazo: {e}")
+                                    # 2) Motor nuevo: toma el nombre de la posición y empieza historial limpio
+                                    conn.execute(
+                                        text("""
+                                            INSERT INTO catalogo_equipos (
+                                                codigo_equipo, ubicacion, marca_modelo, no_serie, frame,
+                                                balero_superior, balero_inferior, potencia_hp, voltaje_nom, corriente_nom, rpm, factor_servicio,
+                                                estatus, breaker_amp, overload_setting, calibre_cable, material_conductor,
+                                                conductores_por_fase, distancia_m, observaciones
+                                            ) VALUES (
+                                                :cod, :ub, :mm, :ns, :fr, :bsup, :binf, :php, :vnom, :inom, :rpm, :fs,
+                                                :est, :brk, :ovl, :cal, :mat, :hilos, :dist, :obs
+                                            );
+                                        """),
+                                        {
+                                            "cod": pos_vieja, "ub": ubic_vieja, "mm": marca_rep.strip(), "ns": nuevo_sn_rep,
+                                            "fr": frame_rep.strip(), "bsup": bsup_rep.strip(), "binf": binf_rep.strip(),
+                                            "php": hp_rep, "vnom": vnom_rep, "inom": fla_rep, "rpm": rpm_rep, "fs": fs_rep,
+                                            "est": estatus_nuevo,
+                                            "brk": _f(viejo.get("breaker_amp"), None), "ovl": _f(viejo.get("overload_setting"), None),
+                                            "cal": _s(viejo.get("calibre_cable")), "mat": _s(viejo.get("material_conductor")),
+                                            "hilos": int(_f(viejo.get("conductores_por_fase"), 1) or 1),
+                                            "dist": _f(viejo.get("distancia_m"), None),
+                                            "obs": f"[{nota_fecha} - {usuario_rep}] Instalado en {pos_vieja} en reemplazo del S/N {sn_viejo}."
+                                        }
+                                    )
+                                    # 3) Trazabilidad: un movimiento por motor
+                                    registrar_movimiento(
+                                        conn, sn_viejo, "Retiro (reemplazo)", pos_vieja, nombre_viejo.strip(),
+                                        ubic_vieja, ubic_viejo_nueva.strip(),
+                                        f"Reemplazado por S/N {nuevo_sn_rep}. {motivo_rep.strip()}", fh_rep
+                                    )
+                                    registrar_movimiento(
+                                        conn, nuevo_sn_rep, "Instalación (reemplazo)", None, pos_vieja,
+                                        None, ubic_vieja, f"Reemplaza al S/N {sn_viejo}. {motivo_rep.strip()}", fh_rep
+                                    )
+                                    # 4) Opcional: cerrar eventos abiertos del motor retirado
+                                    if cerrar_eventos:
+                                        conn.execute(
+                                            text("""
+                                                UPDATE registro_eventos SET estatus = 'Resuelto',
+                                                    accion_tomada = TRIM(COALESCE(accion_tomada, '') || E'\\n' || :nota)
+                                                WHERE TRIM(equipo) = TRIM(:sn) AND estatus IN ('Abierto', 'En Revisión');
+                                            """),
+                                            {"sn": sn_viejo, "nota": f"[{nota_fecha} - {usuario_rep}]: Cerrado por reemplazo del motor (nuevo S/N {nuevo_sn_rep})."}
+                                        )
+                                limpiar_cache()
+                                reset_form("form_reemplazo")
+                                flash(f"✅ Reemplazo registrado: S/N **{nuevo_sn_rep}** ahora es **{pos_vieja}**. "
+                                      f"El S/N **{sn_viejo}** conserva su historial como «{nombre_viejo.strip()}».")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al registrar el reemplazo: {e}")
+            else:
+                df_candidatos = df_rep_todos[(df_rep_todos["no_serie"] != "") & (df_rep_todos["id"] != id_viejo)]
+                if df_candidatos.empty:
+                    st.info("No hay otros motores con S/N en el catálogo para reinstalar.")
+                else:
+                    st.markdown(f"##### 2. Motor registrado que entra a **{pos_vieja}**")
+                    sn_entra, pos_entra_prev = selector_equipo_por_serie(df_candidatos, key_widget="sel_reinstala_motor")
+                    entra = df_candidatos[df_candidatos["no_serie"] == sn_entra].iloc[0]
+                    id_entra = int(entra["id"])
+                    ubic_entra_prev = _s(entra.get("ubicacion")).strip()
+
+                    with st.form(form_key("form_reinstalacion") + f"_{id_viejo}_{id_entra}", clear_on_submit=False):
+                        st.caption(
+                            f"El motor S/N {sn_entra} conserva todo su historial y toma el nombre **{pos_vieja}**. "
+                            "Protecciones y alimentación (ITM, ajuste, cable, distancia) pertenecen a la posición y se le aplican."
+                        )
+                        c_i1, c_i2 = st.columns(2)
+                        with c_i1:
+                            fecha_rei = st.date_input("Fecha real del montaje", value=hoy())
+                            bsup_rei = st.text_input("Balero Superior (actual)", value=_s(entra.get("balero_superior")))
+                            binf_rei = st.text_input("Balero Inferior (actual)", value=_s(entra.get("balero_inferior")))
+                        with c_i2:
+                            estatus_entra = st.selectbox("Estatus del motor que entra", ["Operativo", "Standby", "En Mantenimiento"])
+                            motivo_rei = st.text_area(
+                                "Trabajo realizado / motivo *",
+                                placeholder="Ej. Reparado: limpieza interna y cambio de baleros. Montado en sustitución del motor dañado."
+                            )
+
+                        st.markdown("##### 3. Destino del motor que se retira")
+                        c_d1, c_d2, c_d3 = st.columns(3)
+                        destino_viejo_r = c_d1.selectbox("Estatus del motor retirado", ["Baja", "En Mantenimiento", "Standby"],
+                                                         help="«Baja»: desechado. «En Mantenimiento»: va a reparación. «Standby»: queda de reserva.")
+                        nombre_viejo_r = c_d2.text_input("Nuevo nombre del motor retirado", value=f"RETIRADO {pos_vieja}")
+                        ubic_viejo_r = c_d3.text_input("Ubicación del motor retirado", value="Taller / Almacén")
+                        cerrar_eventos_r = st.checkbox("Cerrar como «Resuelto» los eventos abiertos del motor retirado")
+
+                        btn_reinstalar = st.form_submit_button("🔄 Confirmar Reinstalación", use_container_width=True)
+
+                        if btn_reinstalar:
+                            error_rei = None
+                            if not motivo_rei.strip():
+                                error_rei = "Escribe el trabajo realizado / motivo."
+                            elif not nombre_viejo_r.strip() or nombre_viejo_r.strip().upper() == pos_vieja.upper():
+                                error_rei = "El motor retirado debe quedar con un nombre distinto al de la posición."
+                            else:
+                                try:
+                                    with engine.connect() as conn:
+                                        nombre_ocupado_r = conn.execute(
+                                            text("SELECT COUNT(*) FROM catalogo_equipos WHERE UPPER(TRIM(codigo_equipo)) = UPPER(TRIM(:c)) AND id <> :id;"),
+                                            {"c": nombre_viejo_r.strip(), "id": id_viejo}
+                                        ).scalar()
+                                    if nombre_ocupado_r:
+                                        error_rei = f"El nombre «{nombre_viejo_r.strip()}» ya lo usa otro equipo. Elige otro nombre para el motor retirado."
+                                except Exception as e:
+                                    error_rei = f"No se pudo validar el nombre: {e}"
+
+                            if error_rei:
+                                st.error(error_rei)
+                            else:
+                                fh_rei = datetime.combine(fecha_rei, ahora().time())
+                                nota_fecha_r = fecha_rei.strftime("%d/%m/%Y")
+                                usuario_rei = st.session_state.get("usuario_actual", "Sistema")
+                                try:
+                                    with engine.begin() as conn:
+                                        # 1) Se libera el nombre: el motor retirado se renombra primero (el nombre de posición es único)
+                                        conn.execute(
+                                            text("""
+                                                UPDATE catalogo_equipos SET
+                                                    codigo_equipo = :nom, ubicacion = :ub, estatus = :est,
+                                                    observaciones = TRIM(COALESCE(observaciones, '') || E'\\n' || :nota)
+                                                WHERE id = :id;
+                                            """),
+                                            {
+                                                "nom": nombre_viejo_r.strip(), "ub": ubic_viejo_r.strip(), "est": destino_viejo_r,
+                                                "nota": f"[{nota_fecha_r} - {usuario_rei}] Retirado de {pos_vieja} (sustituido por S/N {sn_entra}). {motivo_rei.strip()}",
+                                                "id": id_viejo
+                                            }
+                                        )
+                                        # 2) El motor registrado toma el nombre de la posición (conserva S/N e historial)
+                                        conn.execute(
+                                            text("""
+                                                UPDATE catalogo_equipos SET
+                                                    codigo_equipo = :cod, ubicacion = :ub, estatus = :est,
+                                                    balero_superior = :bsup, balero_inferior = :binf,
+                                                    breaker_amp = :brk, overload_setting = :ovl, calibre_cable = :cal,
+                                                    material_conductor = :mat, conductores_por_fase = :hilos, distancia_m = :dist,
+                                                    observaciones = TRIM(COALESCE(observaciones, '') || E'\\n' || :nota)
+                                                WHERE id = :id;
+                                            """),
+                                            {
+                                                "cod": pos_vieja, "ub": ubic_vieja, "est": estatus_entra,
+                                                "bsup": bsup_rei.strip(), "binf": binf_rei.strip(),
+                                                "brk": _f(viejo.get("breaker_amp"), None), "ovl": _f(viejo.get("overload_setting"), None),
+                                                "cal": _s(viejo.get("calibre_cable")), "mat": _s(viejo.get("material_conductor")),
+                                                "hilos": int(_f(viejo.get("conductores_por_fase"), 1) or 1),
+                                                "dist": _f(viejo.get("distancia_m"), None),
+                                                "nota": f"[{nota_fecha_r} - {usuario_rei}] Montado en {pos_vieja} (antes: {pos_entra_prev}) en sustitución del S/N {sn_viejo}. {motivo_rei.strip()}",
+                                                "id": id_entra
+                                            }
+                                        )
+                                        # 3) Trazabilidad: un movimiento por motor
+                                        registrar_movimiento(
+                                            conn, sn_viejo, "Retiro (reemplazo)", pos_vieja, nombre_viejo_r.strip(),
+                                            ubic_vieja, ubic_viejo_r.strip(),
+                                            f"Sustituido por S/N {sn_entra}. {motivo_rei.strip()}", fh_rei
+                                        )
+                                        registrar_movimiento(
+                                            conn, sn_entra, "Reinstalación (reemplazo)", pos_entra_prev, pos_vieja,
+                                            ubic_entra_prev, ubic_vieja,
+                                            f"Sustituye al S/N {sn_viejo}. {motivo_rei.strip()}", fh_rei
+                                        )
+                                        # 4) Opcional: cerrar eventos abiertos del motor retirado
+                                        if cerrar_eventos_r:
+                                            conn.execute(
+                                                text("""
+                                                    UPDATE registro_eventos SET estatus = 'Resuelto',
+                                                        accion_tomada = TRIM(COALESCE(accion_tomada, '') || E'\\n' || :nota)
+                                                    WHERE TRIM(equipo) = TRIM(:sn) AND estatus IN ('Abierto', 'En Revisión');
+                                                """),
+                                                {"sn": sn_viejo, "nota": f"[{nota_fecha_r} - {usuario_rei}]: Cerrado por sustitución del motor (S/N {sn_entra} instalado)."}
+                                            )
+                                    limpiar_cache()
+                                    reset_form("form_reinstalacion")
+                                    flash(f"✅ Reinstalación registrada: S/N **{sn_entra}** ahora es **{pos_vieja}**. "
+                                          f"El S/N **{sn_viejo}** conserva su historial como «{nombre_viejo_r.strip()}».")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error al registrar la reinstalación: {e}")
 
         # --- Trayectoria / hoja de vida de cualquier motor (incluye dados de baja) ---
         st.markdown("---")
