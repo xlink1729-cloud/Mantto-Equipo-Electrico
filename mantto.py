@@ -724,17 +724,22 @@ def clasificar_equipo(row, ids_criticos: set, ids_con_evento: set) -> str:
 # ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def obtener_datos():
-    """Inspecciones eléctricas cruzadas con el catálogo SOLO por número de serie (llave única)."""
+    """Inspecciones eléctricas cruzadas con el catálogo.
+    Se liga primero por número de serie. Las lecturas antiguas, capturadas con el nombre de la posición
+    (ej. 'M-16') en lugar del S/N, se ligan por el nombre de la posición SOLO como respaldo
+    (el nombre de posición es único en el catálogo, así que no se duplican filas)."""
     query = """
     SELECT
         i.*,
-        c.corriente_nom AS corriente_nominal_cat,
-        c.voltaje_nom AS voltaje_nominal_cat,
-        c.factor_servicio AS fs_cat,
-        COALESCE(c.codigo_equipo, i.equipo) AS posicion_actual,
-        COALESCE(c.ubicacion, 'N/A') AS area_actual
+        COALESCE(c.corriente_nom, c2.corriente_nom) AS corriente_nominal_cat,
+        COALESCE(c.voltaje_nom, c2.voltaje_nom) AS voltaje_nominal_cat,
+        COALESCE(c.factor_servicio, c2.factor_servicio) AS fs_cat,
+        COALESCE(c.codigo_equipo, c2.codigo_equipo, i.equipo) AS posicion_actual,
+        COALESCE(c.ubicacion, c2.ubicacion, 'N/A') AS area_actual,
+        (c.id IS NULL AND c2.id IS NOT NULL) AS ligado_por_posicion
     FROM inspecciones_bombas i
     LEFT JOIN catalogo_equipos c ON TRIM(i.equipo) = TRIM(c.no_serie)
+    LEFT JOIN catalogo_equipos c2 ON c.id IS NULL AND TRIM(i.equipo) = TRIM(c2.codigo_equipo)
     ORDER BY i.fecha DESC, i.id DESC;
     """
     df = pd.read_sql_query(query, engine)
