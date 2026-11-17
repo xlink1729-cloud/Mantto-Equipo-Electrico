@@ -1232,7 +1232,12 @@ if opcion == "Dashboard & KPIs":
             df_reciente = ultimo_por_equipo(df_rango)
             col_eq, col_tipo = st.columns([2, 1])
             with col_eq:
-                equipo_sel = st.selectbox("Selecciona S/N Motor:", df_reciente["equipo"].tolist(), key="select_fasorial")
+                pos_por_sn = dict(zip(df_reciente["equipo"], df_reciente["posicion_actual"]))
+                equipo_sel = st.selectbox(
+                    "Selecciona S/N Motor:", df_reciente["equipo"].tolist(), key="select_fasorial",
+                    format_func=lambda sn: sn if _s(pos_por_sn.get(sn)).strip().upper() in ("", str(sn).strip().upper())
+                    else f"{sn} — {_s(pos_por_sn.get(sn)).strip()}"
+                )
             with col_tipo:
                 tipo_param = st.radio("Parámetro:", ["Corriente (A)", "Voltaje (V)"], horizontal=True, key="radio_fasorial")
 
@@ -1286,6 +1291,14 @@ if opcion == "Dashboard & KPIs":
             df_graf["semaforo_desbal"] = df_graf["desbalance_i"].apply(clasif_desbalance)
             df_graf["semaforo_fc"] = df_graf.apply(clasif_fc, axis=1)
 
+            # Eje X: S/N arriba y la etiqueta (posición donde está instalado) debajo
+            def etiqueta_eje(r):
+                sn = _s(r["equipo"]).strip()
+                pos = _s(r.get("posicion_actual")).strip()
+                return sn if (not pos or pos.upper() == sn.upper()) else f"{sn}<br>{pos}"
+
+            df_graf["etiqueta_eje"] = df_graf.apply(etiqueta_eje, axis=1)
+
             color_map_db = {"Normal (<5%)": "#22c55e", "Advertencia (5-10%)": "#eab308", "Crítico (>10%)": "#ef4444"}
             color_map_fc = {
                 "Subcarga (<70%)": "#0284c7",
@@ -1305,7 +1318,8 @@ if opcion == "Dashboard & KPIs":
                     st.info("Ningún equipo con inspección tiene FLA registrado.")
                 else:
                     fig_fc = px.bar(
-                        df_fc, x="equipo", y="factor_carga", color="semaforo_fc",
+                        df_fc, x="etiqueta_eje", y="factor_carga", color="semaforo_fc",
+                        labels={"etiqueta_eje": "S/N / Posición"},
                         color_discrete_map=color_map_fc,
                         title="Factor de Carga (%) vs. Factor de Servicio"
                     )
@@ -1314,7 +1328,8 @@ if opcion == "Dashboard & KPIs":
 
             with c_g2:
                 fig_db = px.bar(
-                    df_graf, x="equipo", y="desbalance_i", color="semaforo_desbal",
+                    df_graf, x="etiqueta_eje", y="desbalance_i", color="semaforo_desbal",
+                    labels={"etiqueta_eje": "S/N / Posición"},
                     color_discrete_map=color_map_db,
                     title="Desbalance de Corriente (%)"
                 )
@@ -1329,11 +1344,12 @@ if opcion == "Dashboard & KPIs":
 elif opcion == "Catálogo de Equipos":
     st.title("🏷️ Catálogo General de Activos e Instalación Eléctrica")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📋 Lista de Equipos Registrados",
         "➕ Registrar Nuevo Motor / Bomba",
         "🛠️ Modificar / Reubicar Activo",
-        "🔄 Reemplazar Motor"
+        "🔄 Reemplazar Motor",
+        "🔗 Ligar Historial Antiguo"
     ])
 
     with tab1:
@@ -1998,6 +2014,114 @@ elif opcion == "Catálogo de Equipos":
                     }),
                     use_container_width=True
                 )
+
+
+    with tab5:
+        st.subheader("🔗 Ligar historial antiguo a un motor (por S/N)")
+        st.caption(
+            "Algunos registros antiguos se capturaron con el nombre de la posición (ej. «M-29») en lugar del S/N. "
+            "Aquí decides a qué motor pertenece cada uno, con un rango de fechas por si la posición tuvo más de un motor."
+        )
+        if not es_admin():
+            st.info("Solo un administrador puede reasignar historial.")
+        else:
+            df_cat5 = obtener_equipos()
+            sns_cat5 = set(df_cat5["no_serie"].str.upper()) - {""} if not df_cat5.empty else set()
+
+            TABLAS_HIST = [
+                ("Inspecciones eléctricas", "inspecciones_bombas", "equipo", "fecha"),
+                ("Eventos", "registro_eventos", "equipo", "CAST(fecha_hora AS DATE)"),
+                ("Termografías", "inspecciones_termograficas", "equipo_id", "fecha_inspeccion"),
+                ("Pruebas de aislamiento", "pruebas_aislamiento", "equipo", "CAST(fecha_hora AS DATE)"),
+            ]
+
+            try:
+                partes = [
+                    f"SELECT TRIM({col}) AS nombre, '{etq}' AS tabla, COUNT(*) AS n, MIN({fcol}) AS f_min, MAX({fcol}) AS f_max "
+                    f"FROM {tabla} WHERE {col} IS NOT NULL AND TRIM({col}) <> '' GROUP BY TRIM({col})"
+                    for etq, tabla, col, fcol in TABLAS_HIST
+                ]
+                with engine.connect() as conn:
+                    df_legacy = pd.read_sql(text(" UNION ALL ".join(partes)), conn)
+            except Exception as e:
+                df_legacy = pd.DataFrame()
+                st.error(f"No se pudo consultar el historial: {e}")
+
+            if not df_legacy.empty:
+                # Solo nombres que NO son el S/N de un motor del catálogo
+                df_legacy = df_legacy[~df_legacy["nombre"].str.upper().isin(sns_cat5)]
+
+            if df_legacy.empty:
+                st.success("No hay historial antiguo por nombre de posición: todo está ligado a un S/N. ✅")
+            else:
+                resumen = df_legacy.groupby("nombre").agg(registros=("n", "sum"), desde=("f_min", "min"), hasta=("f_max", "max")).reset_index()
+                st.markdown("##### Nombres con historial sin S/N")
+                st.dataframe(
+                    resumen.rename(columns={"nombre": "Nombre en el historial", "registros": "Registros", "desde": "Desde", "hasta": "Hasta"}),
+                    use_container_width=True
+                )
+
+                nombre_leg = st.selectbox("1. Nombre antiguo a reasignar:", resumen["nombre"].tolist(), key="sel_legacy_nombre")
+                det = df_legacy[df_legacy["nombre"] == nombre_leg]
+                f_min_g = pd.to_datetime(det["f_min"]).min().date()
+                f_max_g = pd.to_datetime(det["f_max"]).max().date()
+                st.caption(" · ".join(f"{r['tabla']}: {int(r['n'])}" for _, r in det.iterrows()))
+
+                df_motores5 = df_cat5[df_cat5["no_serie"] != ""].copy() if not df_cat5.empty else df_cat5
+                if df_motores5.empty:
+                    st.warning("No hay motores con S/N en el catálogo. Asigna S/N primero.")
+                else:
+                    df_motores5["label"] = (
+                        df_motores5["no_serie"] + " — " + df_motores5["codigo_equipo"].astype(str).str.strip()
+                        + " (" + df_motores5["estatus"].fillna("").astype(str) + ")"
+                    )
+                    etiquetas = df_motores5["label"].tolist()
+                    # Por defecto: el motor que hoy tiene ese nombre de posición
+                    idx_def = 0
+                    coincide = df_motores5[df_motores5["codigo_equipo"].astype(str).str.strip().str.upper() == nombre_leg.upper()]
+                    if not coincide.empty:
+                        idx_def = etiquetas.index(coincide.iloc[0]["label"])
+
+                    label_dest = st.selectbox("2. Motor (S/N) al que pertenece ese historial:", etiquetas, index=idx_def, key=f"sel_legacy_dest_{nombre_leg}")
+                    sn_dest = df_motores5[df_motores5["label"] == label_dest].iloc[0]["no_serie"]
+
+                    c_f1, c_f2 = st.columns(2)
+                    f_desde = c_f1.date_input("3. Desde (fecha)", value=f_min_g, key=f"leg_desde_{nombre_leg}")
+                    f_hasta = c_f2.date_input("Hasta (fecha)", value=f_max_g, key=f"leg_hasta_{nombre_leg}")
+
+                    if f_desde > f_hasta:
+                        st.error("La fecha «Desde» no puede ser posterior a «Hasta».")
+                    else:
+                        conteos = {}
+                        try:
+                            with engine.connect() as conn:
+                                for etq, tabla, col, fcol in TABLAS_HIST:
+                                    conteos[etq] = conn.execute(
+                                        text(f"SELECT COUNT(*) FROM {tabla} WHERE TRIM({col}) = :n AND {fcol} BETWEEN :d1 AND :d2;"),
+                                        {"n": nombre_leg, "d1": f_desde, "d2": f_hasta}
+                                    ).scalar() or 0
+                        except Exception as e:
+                            st.error(f"No se pudo calcular la vista previa: {e}")
+
+                        total_prev = sum(conteos.values())
+                        st.info(
+                            f"Se ligarán **{total_prev}** registro(s) de «{nombre_leg}» ({f_desde.strftime('%d/%m/%Y')} – {f_hasta.strftime('%d/%m/%Y')}) "
+                            f"al S/N **{sn_dest}**: " + ", ".join(f"{k}: {v}" for k, v in conteos.items())
+                        )
+                        confirmar_leg = st.checkbox("Confirmo que ese historial pertenece a ese motor", key=f"leg_conf_{nombre_leg}")
+                        if st.button("🔗 Ligar historial", key=f"leg_btn_{nombre_leg}", disabled=(total_prev == 0 or not confirmar_leg)):
+                            try:
+                                with engine.begin() as conn:
+                                    for etq, tabla, col, fcol in TABLAS_HIST:
+                                        conn.execute(
+                                            text(f"UPDATE {tabla} SET {col} = :sn WHERE TRIM({col}) = :n AND {fcol} BETWEEN :d1 AND :d2;"),
+                                            {"sn": sn_dest, "n": nombre_leg, "d1": f_desde, "d2": f_hasta}
+                                        )
+                                limpiar_cache()
+                                flash(f"✅ {total_prev} registro(s) de «{nombre_leg}» ligados al S/N {sn_dest}.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al ligar el historial: {e}")
 
 
 # =========================================================
