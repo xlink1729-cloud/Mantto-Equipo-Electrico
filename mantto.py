@@ -2015,6 +2015,119 @@ elif opcion == "Catálogo de Equipos":
                     use_container_width=True
                 )
 
+            # --- Admin: corregir la fecha de un movimiento o agregar uno pasado (solo bitácora, no toca el catálogo) ---
+            if es_admin():
+                with st.expander("🛠️ Corregir o agregar movimientos de este motor (admin)"):
+                    st.caption(
+                        "Solo modifica la bitácora de movimientos; no cambia el catálogo. "
+                        "Sirve para dejar la fecha real de un cambio que se capturó tarde."
+                    )
+                    TIPOS_MOV = ["Instalación", "Reubicación", "Retiro", "Alta", "Baja", "Instalación (reemplazo)",
+                                 "Reinstalación (reemplazo)", "Retiro (reemplazo)", "Otro"]
+                    modo_mov = st.radio("Acción:", ["Corregir un movimiento existente", "Agregar un movimiento pasado"],
+                                        horizontal=True, key=f"modo_mov_{sn_tray}")
+
+                    if modo_mov.startswith("Corregir"):
+                        if df_mov_sn.empty:
+                            st.info("Este motor no tiene movimientos para corregir.")
+                        else:
+                            opciones_mov = {}
+                            for _, mv in df_mov_sn.iterrows():
+                                etq_mv = (f"#{int(mv['id'])} | {pd.to_datetime(mv['fecha_hora']).strftime('%d/%m/%Y %H:%M')} | "
+                                          f"{_s(mv['tipo_movimiento'])} | {_s(mv['posicion_anterior']) or '—'} → {_s(mv['posicion_nueva']) or '—'}")
+                                opciones_mov[etq_mv] = int(mv["id"])
+                            etq_sel = st.selectbox("Movimiento:", list(opciones_mov.keys()), key=f"sel_mov_{sn_tray}")
+                            id_mov = opciones_mov[etq_sel]
+                            mv = df_mov_sn[df_mov_sn["id"] == id_mov].iloc[0]
+                            fh_mv = pd.to_datetime(mv["fecha_hora"]).to_pydatetime()
+
+                            with st.form(f"form_edit_mov_{id_mov}"):
+                                c_m1, c_m2 = st.columns(2)
+                                f_mv = c_m1.date_input("Fecha", value=fh_mv.date())
+                                h_mv = c_m2.time_input("Hora", value=fh_mv.time())
+                                tipo_mv = st.text_input("Tipo de movimiento", value=_s(mv["tipo_movimiento"]))
+                                c_m3, c_m4 = st.columns(2)
+                                pa_mv = c_m3.text_input("Posición anterior", value=_s(mv["posicion_anterior"]))
+                                pn_mv = c_m4.text_input("Posición nueva", value=_s(mv["posicion_nueva"]))
+                                ua_mv = c_m3.text_input("Ubicación anterior", value=_s(mv["ubicacion_anterior"]))
+                                un_mv = c_m4.text_input("Ubicación nueva", value=_s(mv["ubicacion_nueva"]))
+                                mot_mv = st.text_area("Motivo", value=_s(mv["motivo"]))
+                                confirmar_borrar_mv = st.checkbox("Confirmo que quiero ELIMINAR este movimiento (solo para el botón de eliminar)")
+                                b_m1, b_m2 = st.columns(2)
+                                guardar_mv = b_m1.form_submit_button("💾 Guardar corrección", use_container_width=True)
+                                borrar_mv = b_m2.form_submit_button("🗑️ Eliminar movimiento", use_container_width=True)
+
+                                if guardar_mv:
+                                    try:
+                                        with engine.begin() as conn:
+                                            conn.execute(
+                                                text("""
+                                                    UPDATE movimientos_equipo SET
+                                                        fecha_hora = :fh, tipo_movimiento = :t,
+                                                        posicion_anterior = :pa, posicion_nueva = :pn,
+                                                        ubicacion_anterior = :ua, ubicacion_nueva = :un, motivo = :mot
+                                                    WHERE id = :id AND TRIM(no_serie) = TRIM(:sn);
+                                                """),
+                                                {
+                                                    "fh": datetime.combine(f_mv, h_mv), "t": tipo_mv.strip() or None,
+                                                    "pa": pa_mv.strip() or None, "pn": pn_mv.strip() or None,
+                                                    "ua": ua_mv.strip() or None, "un": un_mv.strip() or None,
+                                                    "mot": mot_mv.strip() or None, "id": id_mov, "sn": sn_tray
+                                                }
+                                            )
+                                        limpiar_cache()
+                                        flash(f"✅ Movimiento #{id_mov} corregido.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error al corregir el movimiento: {e}")
+
+                                if borrar_mv:
+                                    if not confirmar_borrar_mv:
+                                        st.warning("Marca la casilla de confirmación para eliminar el movimiento.")
+                                    else:
+                                        try:
+                                            with engine.begin() as conn:
+                                                conn.execute(
+                                                    text("DELETE FROM movimientos_equipo WHERE id = :id AND TRIM(no_serie) = TRIM(:sn);"),
+                                                    {"id": id_mov, "sn": sn_tray}
+                                                )
+                                            limpiar_cache()
+                                            flash(f"🗑️ Movimiento #{id_mov} eliminado.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ Error al eliminar el movimiento: {e}")
+                    else:
+                        with st.form(form_key("form_add_mov") + f"_{sn_tray}"):
+                            c_a1, c_a2 = st.columns(2)
+                            f_add = c_a1.date_input("Fecha del movimiento", value=hoy())
+                            h_add = c_a2.time_input("Hora", value=ahora().time())
+                            tipo_add = st.selectbox("Tipo de movimiento", TIPOS_MOV)
+                            c_a3, c_a4 = st.columns(2)
+                            pa_add = c_a3.text_input("Posición anterior (vacío si no aplica)")
+                            pn_add = c_a4.text_input("Posición nueva")
+                            ua_add = c_a3.text_input("Ubicación anterior")
+                            un_add = c_a4.text_input("Ubicación nueva")
+                            mot_add = st.text_area("Motivo *", placeholder="Ej. Montado en M-29 sin alimentación: solo se conectó la calefacción")
+                            if st.form_submit_button("➕ Agregar movimiento", use_container_width=True):
+                                if not mot_add.strip():
+                                    st.error("Escribe el motivo del movimiento.")
+                                elif not pn_add.strip() and not pa_add.strip():
+                                    st.error("Captura al menos la posición anterior o la nueva.")
+                                else:
+                                    try:
+                                        with engine.begin() as conn:
+                                            registrar_movimiento(
+                                                conn, sn_tray, tipo_add, pa_add.strip(), pn_add.strip(),
+                                                ua_add.strip(), un_add.strip(), mot_add.strip(),
+                                                datetime.combine(f_add, h_add)
+                                            )
+                                        limpiar_cache()
+                                        reset_form("form_add_mov")
+                                        flash(f"✅ Movimiento agregado al S/N {sn_tray}.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error al agregar el movimiento: {e}")
+
 
     with tab5:
         st.subheader("🔗 Ligar historial antiguo a un motor (por S/N)")
